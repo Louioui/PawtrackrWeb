@@ -37,6 +37,25 @@ test('staff reservation endpoint requires a real session and validates the reque
     data: input,
   });
   expect(invalid.status()).toBe(401);
+
+  const missingPatch = await request.patch('/api/reservations', {
+    data: { id: '44444444-4444-4444-8444-444444444444', status: 'completed' },
+  });
+  expect(missingPatch.status()).toBe(401);
+  expect(missingPatch.headers()['cache-control']).toBe('no-store');
+  expect(missingPatch.headers()['x-pawtrackr-data-mode']).toBe('authenticated-write');
+
+  const malformedPatch = await request.patch('/api/reservations', {
+    headers: { Authorization: 'Bearer invalid-token' },
+    data: { id: '44444444-4444-4444-8444-444444444444', status: 'unsupported_state' },
+  });
+  expect(malformedPatch.status()).toBe(400);
+
+  const invalidPatch = await request.patch('/api/reservations', {
+    headers: { Authorization: 'Bearer invalid-token' },
+    data: { id: '44444444-4444-4444-8444-444444444444', status: 'completed' },
+  });
+  expect(invalidPatch.status()).toBe(401);
 });
 
 test('live appointments requires staff sign-in and fits narrow mobile viewports', async ({ page }) => {
@@ -85,8 +104,64 @@ test('live appointments supports desktop, portrait, and landscape schedules with
     }));
   });
 
-  await page.route('**/api/reservations?date=*', async (route) => {
+  let mochiStatus: 'ready' | 'completed' = 'ready';
+  let createdVisit = false;
+
+  await page.route('**/api/reservations**', async (route) => {
+    const method = route.request().method();
     expect(route.request().headers().authorization).toBe('Bearer fixture.jwt.token');
+    if (method === 'PATCH') {
+      const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, string>;
+      if (body.id === 'bbbbbbbb-1111-4111-8111-111111111112' && body.status === 'booked') {
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'That groomer is already booked during this time.' }),
+        });
+        return;
+      }
+      if (body.id === 'bbbbbbbb-1111-4111-8111-111111111113' && body.status === 'completed') {
+        mochiStatus = 'completed';
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            reservation: {
+              id: body.id,
+              scheduled_time: `${today}T11:00:00Z`,
+              reservation_end: `${today}T12:00:00Z`,
+              status: 'completed',
+            },
+          }),
+        });
+        return;
+      }
+    }
+    if (method === 'POST') {
+      const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, string>;
+      if (body.scheduled_time === `${today}T09:30:00.000Z`) {
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'That groomer is already booked during this time.' }),
+        });
+        return;
+      }
+      createdVisit = true;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          reservation: {
+            id: 'bbbbbbbb-1111-4111-8111-111111111114',
+            scheduled_time: `${today}T13:00:00Z`,
+            reservation_end: `${today}T14:00:00Z`,
+            status: 'booked',
+          },
+        }),
+      });
+      return;
+    }
     if (membershipRevoked) {
       await route.fulfill({
         status: 403,
@@ -148,14 +223,42 @@ test('live appointments supports desktop, portrait, and landscape schedules with
             id: 'bbbbbbbb-1111-4111-8111-111111111113',
             scheduled_time: `${requestedDate}T11:00:00Z`,
             reservation_end: `${requestedDate}T12:00:00Z`,
-            status: 'ready',
+            status: mochiStatus,
             service_package: 'Senior Sanctuary Bath',
             staff_id: 'dddddddd-1111-4111-8111-111111111111',
             pet_name: 'Mochi',
             client_name: 'Hannah Lindqvist',
             staff_name: 'Sora Takahashi',
           },
+          ...(createdVisit ? [{
+            id: 'bbbbbbbb-1111-4111-8111-111111111114',
+            scheduled_time: `${requestedDate}T13:00:00Z`,
+            reservation_end: `${requestedDate}T14:00:00Z`,
+            status: 'booked' as const,
+            service_package: 'Bath & Brush',
+            staff_id: 'cccccccc-1111-4111-8111-111111111111',
+            pet_name: 'Koda',
+            client_name: 'Marcus Sterling',
+            staff_name: 'Elena Vance',
+          }] : []),
         ],
+        booking_options: {
+          pets: [
+            {
+              id: 'eeeeeeee-1111-4111-8111-111111111111',
+              client_id: 'ffffffff-1111-4111-8111-111111111111',
+              pet_name: 'Koda',
+              client_name: 'Marcus Sterling',
+            },
+          ],
+          groomers: [
+            { id: 'cccccccc-1111-4111-8111-111111111111', name: 'Elena Vance' },
+            { id: 'dddddddd-1111-4111-8111-111111111111', name: 'Sora Takahashi' },
+          ],
+          services: [
+            { id: 'bath', name: 'Bath & Brush', duration_minutes: 60 },
+          ],
+        },
       }),
     });
   });
@@ -190,12 +293,31 @@ test('live appointments supports desktop, portrait, and landscape schedules with
   await filterRail.getByRole('button', { name: 'All groomers' }).click();
   await expect(timeline.getByRole('button', { name: /Bello/ })).toBeVisible();
 
-  // 2. Mobile Landscape (844x390): horizontal groomer timeline + visible compact details below timeline
+  // Status conflict (409) when attempting to reactivate a canceled visit over a booked slot
+  await miloTimelineBtn.click();
+  await detailRegion.getByLabel('Update status').selectOption('booked');
+  await detailRegion.getByRole('button', { name: 'Save status' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'That groomer is already booked during this time.' })).toBeVisible();
+
+  // New appointment booking (409 conflict then 201 creation)
+  await page.locator('summary').filter({ hasText: 'New appointment' }).click();
+  await page.getByLabel(/UTC start time/).fill('09:30');
+  await page.getByRole('button', { name: 'Book visit' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'That groomer is already booked during this time.' })).toBeVisible();
+  await page.getByLabel(/UTC start time/).fill('13:00');
+  await page.getByRole('button', { name: 'Book visit' }).click();
+  await expect(page.getByText('3 active · 0 completed · 1 canceled')).toBeVisible();
+  await expect(timeline.getByRole('button', { name: /Koda/ })).toBeVisible();
+
+  // 2. Mobile Landscape (844x390): horizontal groomer timeline + visible compact details below timeline + status completion
   await page.setViewportSize({ width: 844, height: 390 });
   await expect(timeline).toBeVisible();
   await timeline.getByRole('button', { name: /Mochi/ }).click();
   await expect(detailRegion).toBeVisible();
   await expect(detailRegion).toContainText('Hannah Lindqvist');
+  await detailRegion.getByLabel('Update status').selectOption('completed');
+  await detailRegion.getByRole('button', { name: 'Save status' }).click();
+  await expect(page.getByText('2 active · 1 completed · 1 canceled')).toBeVisible();
 
   // 3. Mobile Portrait (390x844): agenda view + inline selected details
   await page.setViewportSize({ width: 390, height: 844 });

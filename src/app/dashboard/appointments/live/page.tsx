@@ -35,8 +35,15 @@ export default function LiveAppointmentsPage() {
   const [online, setOnline] = useState(true);
   const [staffFilter, setStaffFilter] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [statusDraft, setStatusDraft] = useState<LiveReservation['status']>('booked');
+  const [bookingPetId, setBookingPetId] = useState('');
+  const [bookingStaffId, setBookingStaffId] = useState('');
+  const [bookingPackageId, setBookingPackageId] = useState('');
+  const [bookingTime, setBookingTime] = useState('09:00');
+  const [saving, setSaving] = useState(false);
   const requestId = useRef(0);
   const filterMenuRef = useRef<HTMLDetailsElement>(null);
+  const bookingMenuRef = useRef<HTMLDetailsElement>(null);
 
   const selectStaffFilter = (nextStaffId: string) => {
     setStaffFilter(nextStaffId);
@@ -119,6 +126,85 @@ export default function LiveAppointmentsPage() {
   const rows = useMemo(() => (snapshot?.reservations ?? []).filter((item) => staffFilter === 'all' || (item.staff_id ?? 'unassigned') === staffFilter), [snapshot, staffFilter]);
   const selected = rows.find((item) => item.id === selectedId) ?? null;
   const lanes = staffFilter === 'all' ? staff : staff.filter(([id]) => id === staffFilter);
+  const bookingOptions = snapshot?.booking_options;
+  const canBook = (bookingOptions?.pets.length ?? 0) > 0 && (bookingOptions?.groomers.length ?? 0) > 0 && (bookingOptions?.services.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (selected) setStatusDraft(selected.status);
+  }, [selected]);
+
+  useEffect(() => {
+    if (!bookingOptions) return;
+    if (bookingOptions.pets.length && !bookingOptions.pets.some((item) => item.id === bookingPetId)) {
+      setBookingPetId(bookingOptions.pets[0].id);
+    }
+    if (bookingOptions.groomers.length && !bookingOptions.groomers.some((item) => item.id === bookingStaffId)) {
+      setBookingStaffId(bookingOptions.groomers[0].id);
+    }
+    if (bookingOptions.services.length && !bookingOptions.services.some((item) => item.id === bookingPackageId)) {
+      setBookingPackageId(bookingOptions.services[0].id);
+    }
+  }, [bookingOptions, bookingPetId, bookingStaffId, bookingPackageId]);
+
+  const updateStatus = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected || saving || statusDraft === selected.status) return;
+    const client = getSupabaseClient();
+    if (!client) return;
+    setSaving(true); setMessage('');
+    try {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session) { setSignedIn(false); setSnapshot(null); setMessage('Your session expired. Sign in again.'); return; }
+      const response = await fetch('/api/reservations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ id: selected.id, status: statusDraft }),
+      });
+      const body: unknown = await response.json();
+      if (response.status === 401) { setSignedIn(false); setSnapshot(null); setMessage('Your session expired. Sign in again.'); return; }
+      if (!response.ok) throw new Error((body as { error?: string }).error ?? 'The reservation status could not be updated.');
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The reservation status could not be updated.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const createReservation = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!bookingOptions || saving) return;
+    const pet = bookingOptions.pets.find((item) => item.id === bookingPetId);
+    const client = getSupabaseClient();
+    if (!pet || !bookingStaffId || !bookingPackageId || !bookingTime || !client) return;
+    setSaving(true); setMessage('');
+    try {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session) { setSignedIn(false); setSnapshot(null); setMessage('Your session expired. Sign in again.'); return; }
+      const response = await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          client_id: pet.client_id,
+          pet_id: pet.id,
+          staff_id: bookingStaffId,
+          package_id: bookingPackageId,
+          scheduled_time: `${day}T${bookingTime}:00.000Z`,
+        }),
+      });
+      const body: unknown = await response.json();
+      if (response.status === 401) { setSignedIn(false); setSnapshot(null); setMessage('Your session expired. Sign in again.'); return; }
+      if (!response.ok) throw new Error((body as { error?: string }).error ?? 'The reservation could not be saved.');
+      const createdId = (body as { reservation?: { id?: string } }).reservation?.id;
+      if (createdId) setSelectedId(createdId);
+      bookingMenuRef.current?.removeAttribute('open');
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The reservation could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const detail = selected && <section aria-label="Selected appointment" className="rounded-xl border border-periwinkle-400/40 bg-periwinkle-500/10 p-4">
     <h2 className="text-lg font-bold text-white">{selected.pet_name}</h2>
@@ -130,6 +216,14 @@ export default function LiveAppointmentsPage() {
       <dt className="text-zinc-400">Groomer</dt><dd className="text-white">{selected.staff_name}</dd>
       <dt className="text-zinc-400">Source</dt><dd className="text-white">Supabase visit</dd>
     </dl>
+    <form onSubmit={updateStatus} className="mt-4 flex flex-wrap items-end gap-2 border-t border-white/10 pt-3">
+      <label className="block min-w-36 flex-1 text-xs text-zinc-300">Update status
+        <select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value as LiveReservation['status'])} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white">
+          {(Object.entries(statusLabel) as [LiveReservation['status'], string][]).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+        </select>
+      </label>
+      <button type="submit" disabled={saving || statusDraft === selected.status} className="min-h-11 rounded-lg bg-periwinkle-500 px-3 text-xs font-bold text-obsidian-950">{saving ? 'Saving…' : 'Save status'}</button>
+    </form>
     <button type="button" onClick={() => setSelectedId(null)} className="mt-4 min-h-11 text-sm text-periwinkle-200 underline">Close details</button>
   </section>;
 
@@ -167,6 +261,32 @@ export default function LiveAppointmentsPage() {
         <span>Updated: {new Date(snapshot.as_of).toLocaleString('en-US', { timeZone: 'UTC' })} UTC</span>
         <span>{snapshot.active_count} active · {snapshot.completed_count} completed · {snapshot.cancelled_count} canceled</span>
       </div>}
+      {canBook && bookingOptions && <details ref={bookingMenuRef} className="mt-3 rounded-xl border border-white/10 bg-obsidian-800/60 p-3">
+        <summary className="cursor-pointer text-sm font-semibold text-periwinkle-200">New appointment</summary>
+        <form onSubmit={createReservation} className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <label className="block text-xs text-zinc-300">Pet & client
+            <select value={bookingPetId} onChange={(event) => setBookingPetId(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white">
+              {bookingOptions.pets.map((pet) => <option key={pet.id} value={pet.id}>{pet.pet_name} · {pet.client_name}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs text-zinc-300">Groomer
+            <select value={bookingStaffId} onChange={(event) => setBookingStaffId(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white">
+              {bookingOptions.groomers.map((groomer) => <option key={groomer.id} value={groomer.id}>{groomer.name}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs text-zinc-300">Service
+            <select value={bookingPackageId} onChange={(event) => setBookingPackageId(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white">
+              {bookingOptions.services.map((service) => <option key={service.id} value={service.id}>{service.name} ({service.duration_minutes}m)</option>)}
+            </select>
+          </label>
+          <label className="block text-xs text-zinc-300">UTC start time ({day})
+            <input type="time" required value={bookingTime} onChange={(event) => setBookingTime(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white" />
+          </label>
+          <div className="flex items-end">
+            <button type="submit" disabled={saving} className="min-h-11 w-full rounded-lg bg-periwinkle-500 px-4 text-sm font-bold text-obsidian-950">{saving ? 'Booking…' : 'Book visit'}</button>
+          </div>
+        </form>
+      </details>}
       <div className="mt-4 grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_240px]">
         <aside className="hidden border-r border-white/10 pr-3 lg:block" aria-label="Groomer filters">
           <h2 className="mb-3 text-sm font-bold text-white">Groomers</h2>

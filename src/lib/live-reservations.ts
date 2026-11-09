@@ -10,6 +10,30 @@ export type LiveReservation = {
   staff_name: string;
 };
 
+export type LiveBookingPetOption = {
+  id: string;
+  client_id: string;
+  pet_name: string;
+  client_name: string;
+};
+
+export type LiveBookingGroomerOption = {
+  id: string;
+  name: string;
+};
+
+export type LiveBookingServiceOption = {
+  id: string;
+  name: string;
+  duration_minutes: number;
+};
+
+export type LiveBookingOptions = {
+  pets: LiveBookingPetOption[];
+  groomers: LiveBookingGroomerOption[];
+  services: LiveBookingServiceOption[];
+};
+
 export type LiveReservationDay = {
   source: 'supabase_visits';
   business_id: string;
@@ -20,6 +44,7 @@ export type LiveReservationDay = {
   active_count: number;
   completed_count: number;
   cancelled_count: number;
+  booking_options?: LiveBookingOptions;
 };
 
 const statuses = new Set(['booked', 'dropped_off', 'bathing', 'styling', 'ready', 'completed', 'cancelled']);
@@ -28,6 +53,45 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
 const dateTime = (value: unknown): value is string => typeof value === 'string' &&
   /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value) && Number.isFinite(Date.parse(value));
 const label = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
+
+function normalizeBookingOptions(raw: unknown): LiveBookingOptions {
+  if (!object(raw) || !Array.isArray(raw.pets) || !Array.isArray(raw.groomers) || !Array.isArray(raw.services) ||
+      raw.pets.length > 500 || raw.groomers.length > 200 || raw.services.length > 200) {
+    throw new Error('Invalid live booking options');
+  }
+  const petIds = new Set<string>();
+  const pets: LiveBookingPetOption[] = raw.pets.map((item: unknown) => {
+    if (!object(item) || typeof item.id !== 'string' || !uuid.test(item.id) || petIds.has(item.id) ||
+        typeof item.client_id !== 'string' || !uuid.test(item.client_id) ||
+        !label(item.pet_name) || !label(item.client_name)) {
+      throw new Error('Invalid live booking pet option');
+    }
+    petIds.add(item.id);
+    return { id: item.id, client_id: item.client_id, pet_name: item.pet_name, client_name: item.client_name };
+  });
+  const groomerIds = new Set<string>();
+  const groomers: LiveBookingGroomerOption[] = raw.groomers.map((item: unknown) => {
+    if (!object(item) || typeof item.id !== 'string' || !uuid.test(item.id) || groomerIds.has(item.id) || !label(item.name)) {
+      throw new Error('Invalid live booking groomer option');
+    }
+    groomerIds.add(item.id);
+    return { id: item.id, name: item.name };
+  });
+  const serviceIds = new Set<string>();
+  const services: LiveBookingServiceOption[] = raw.services.map((item: unknown) => {
+    if (!object(item) || typeof item.id !== 'string' || !item.id.trim() || item.id.length > 100 || serviceIds.has(item.id) ||
+        !label(item.name) || typeof item.duration_minutes !== 'number' || !Number.isInteger(item.duration_minutes) ||
+        item.duration_minutes < 1 || item.duration_minutes > 1440) {
+      throw new Error('Invalid live booking service option');
+    }
+    serviceIds.add(item.id);
+    return { id: item.id, name: item.name, duration_minutes: item.duration_minutes };
+  });
+  pets.sort((a, b) => a.pet_name.localeCompare(b.pet_name) || a.id.localeCompare(b.id));
+  groomers.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  services.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return { pets, groomers, services };
+}
 
 export function normalizeLiveReservationDay(input: unknown, expectedDate: string): LiveReservationDay {
   if (!object(input) || input.source !== 'supabase_visits' || input.timezone !== 'UTC' ||
@@ -50,6 +114,7 @@ export function normalizeLiveReservationDay(input: unknown, expectedDate: string
     return raw as LiveReservation;
   });
   reservations.sort((a, b) => Date.parse(a.scheduled_time) - Date.parse(b.scheduled_time) || a.id.localeCompare(b.id));
+  const bookingOptions = input.booking_options !== undefined ? normalizeBookingOptions(input.booking_options) : undefined;
   return {
     source: 'supabase_visits',
     business_id: input.business_id,
@@ -60,5 +125,6 @@ export function normalizeLiveReservationDay(input: unknown, expectedDate: string
     active_count: reservations.filter((item) => !['completed', 'cancelled'].includes(item.status)).length,
     completed_count: reservations.filter((item) => item.status === 'completed').length,
     cancelled_count: reservations.filter((item) => item.status === 'cancelled').length,
+    ...(bookingOptions ? { booking_options: bookingOptions } : {}),
   };
 }

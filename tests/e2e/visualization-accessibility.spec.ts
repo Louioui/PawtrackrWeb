@@ -86,6 +86,16 @@ test('live appointments visualization has no automated WCAG A or AA violations a
           client_name: 'Alex',
           staff_name: 'Morgan',
         }],
+        booking_options: {
+          pets: [{
+            id: 'eeeeeeee-1111-4111-8111-111111111111',
+            client_id: 'ffffffff-1111-4111-8111-111111111111',
+            pet_name: 'Pip',
+            client_name: 'Alex',
+          }],
+          groomers: [{ id: 'cccccccc-1111-4111-8111-111111111111', name: 'Morgan' }],
+          services: [{ id: 'bath', name: 'Bath', duration_minutes: 60 }],
+        },
       }),
     });
   });

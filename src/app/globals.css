@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #0b090e;
+  color: #f4f4f6;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom subtle glassmorphic utilities */
+@layer components {
+  .glass-card {
+    @apply rounded-2xl border border-white/[0.08] bg-obsidian-700/75 backdrop-blur-xl shadow-glass;
+  }
+
+  .glass-card-interactive {
+    @apply rounded-2xl border border-white/[0.08] bg-obsidian-700/75 backdrop-blur-xl shadow-glass transition-all duration-200 hover:border-periwinkle-500/40 hover:shadow-glass-hover;
+  }
+}
+
+/* Custom sleek dark scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0b090e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2334;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8b95ff;
+}

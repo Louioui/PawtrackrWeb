@@ -1,0 +1,35 @@
+name: Pawtrackr Web Enterprise CI/CD (#47)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Verify SQL Migrations & Schema Version Control (#2)
+        run: node scripts/migrate-runner.mjs
+
+      - name: Run TypeScript Strict Typecheck
+        run: npm run typecheck
+
+      - name: Run 50-Point Architectural & Atomic POS Test Suite (#1, #22)
+        run: npm test
+
+      - name: Build Production Next.js Bundle (#46)
+        run: npm run build

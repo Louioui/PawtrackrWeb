@@ -1,0 +1,11 @@
+{
+  "name": "Pawtrackr Web — Multi-Tenant Grooming Salon & Van OS",
+  "short_name": "Pawtrackr",
+  "description": "Universal B2B Vertical SaaS for Pet Groomers across Android, Windows, iOS, macOS, and Web.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0B090E",
+  "theme_color": "#8B95FF",
+  "orientation": "any",
+  "categories": ["business", "finance", "productivity"]
+}

@@ -25,20 +25,22 @@ export function middleware(req: NextRequest) {
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1';
 
   // 1. Sliding-Window Edge Rate Limiter (#3)
-  const now = Date.now();
-  const record = ipRequestCounts.get(clientIp);
-  if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
-    ipRequestCounts.set(clientIp, { count: 1, windowStart: now });
-  } else {
-    record.count += 1;
-    if (record.count > MAX_REQUESTS_PER_WINDOW && pathname.startsWith('/api/')) {
-      return NextResponse.json(
-        {
-          error:
-            'Rate limit exceeded. Protected by Pawtrackr Edge Rate Limiter.',
-        },
-        { status: 429 }
-      );
+  if (pathname.startsWith('/api/')) {
+    const now = Date.now();
+    const record = ipRequestCounts.get(clientIp);
+    if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
+      ipRequestCounts.set(clientIp, { count: 1, windowStart: now });
+    } else {
+      record.count += 1;
+      if (record.count > MAX_REQUESTS_PER_WINDOW) {
+        return NextResponse.json(
+          {
+            error:
+              'Rate limit exceeded. Protected by Pawtrackr Edge Rate Limiter.',
+          },
+          { status: 429 }
+        );
+      }
     }
   }
 
@@ -53,7 +55,18 @@ export function middleware(req: NextRequest) {
   const res = NextResponse.next();
 
   // 3. Hardened Multi-Tenant & OWASP Security Headers (#45)
-  res.headers.set('x-pawtrackr-data-mode', pathname === '/api/analytics' ? 'authenticated-read' : pathname.startsWith('/portal/live') ? 'public-catalog' : 'demo-only');
+  const dataMode =
+    pathname === '/api/reservations' && req.method === 'POST'
+      ? 'authenticated-write'
+      : pathname === '/api/analytics' ||
+          pathname === '/api/reservations' ||
+          pathname === '/dashboard/analytics/live' ||
+          pathname === '/dashboard/appointments/live'
+        ? 'authenticated-read'
+        : pathname.startsWith('/portal/live')
+          ? 'public-catalog'
+          : 'demo-only';
+  res.headers.set('x-pawtrackr-data-mode', dataMode);
   res.headers.set('x-frame-options', 'SAMEORIGIN');
   res.headers.set('x-content-type-options', 'nosniff');
   res.headers.set('referrer-policy', 'strict-origin-when-cross-origin');

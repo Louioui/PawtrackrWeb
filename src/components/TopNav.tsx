@@ -147,12 +147,11 @@ export function TopNav() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              aria-label="Quick Jump search"
               onClick={() => setIsPaletteOpen(true)}
               className="inline-flex items-center gap-2 rounded-xl border border-white/[0.12] bg-obsidian-800 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:border-periwinkle-500/50 hover:text-white"
             >
               <Search className="h-3.5 w-3.5 text-periwinkle-400" />
-              <span className="hidden sm:inline">Quick Jump</span>
+              <span className="sr-only sm:not-sr-only">Quick Jump</span>
               <kbd className="hidden md:inline rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-[10px] text-periwinkle-300">
                 Ctrl+K / ⌘K
               </kbd>

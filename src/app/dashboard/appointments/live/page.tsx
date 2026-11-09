@@ -36,6 +36,17 @@ export default function LiveAppointmentsPage() {
   const [staffFilter, setStaffFilter] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const requestId = useRef(0);
+  const filterMenuRef = useRef<HTMLDetailsElement>(null);
+
+  const selectStaffFilter = (nextStaffId: string) => {
+    setStaffFilter(nextStaffId);
+    setSelectedId((current) => {
+      if (!current || nextStaffId === 'all') return current;
+      const item = snapshot?.reservations.find((row) => row.id === current);
+      return item && (item.staff_id ?? 'unassigned') === nextStaffId ? current : null;
+    });
+    filterMenuRef.current?.removeAttribute('open');
+  };
 
   const refresh = useCallback(async () => {
     const current = ++requestId.current;
@@ -159,34 +170,59 @@ export default function LiveAppointmentsPage() {
       <div className="mt-4 grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_240px]">
         <aside className="hidden border-r border-white/10 pr-3 lg:block" aria-label="Groomer filters">
           <h2 className="mb-3 text-sm font-bold text-white">Groomers</h2>
-          <button type="button" onClick={() => setStaffFilter('all')} className={`mb-1 min-h-11 w-full rounded-lg px-3 text-left text-sm ${staffFilter === 'all' ? 'bg-periwinkle-500/20 text-white' : 'text-zinc-300'}`}>All groomers</button>
-          {staff.map(([id, name]) => <button key={id} type="button" onClick={() => { setStaffFilter(id); setSelectedId(null); }} className={`mb-1 min-h-11 w-full rounded-lg px-3 text-left text-sm ${staffFilter === id ? 'bg-periwinkle-500/20 text-white' : 'text-zinc-300'}`}>{name}</button>)}
+          <button type="button" onClick={() => selectStaffFilter('all')} className={`mb-1 min-h-11 w-full rounded-lg px-3 text-left text-sm ${staffFilter === 'all' ? 'bg-periwinkle-500/20 text-white' : 'text-zinc-300'}`}>All groomers</button>
+          {staff.map(([id, name]) => <button key={id} type="button" onClick={() => selectStaffFilter(id)} className={`mb-1 min-h-11 w-full rounded-lg px-3 text-left text-sm ${staffFilter === id ? 'bg-periwinkle-500/20 text-white' : 'text-zinc-300'}`}>{name}</button>)}
         </aside>
         <section aria-label="UTC appointment schedule" className="min-w-0">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-lg font-bold text-white">{day} <span className="text-sm font-normal text-zinc-400">UTC</span></h2>
-            <details className="lg:hidden"><summary className="min-h-11 cursor-pointer rounded-lg border border-white/15 px-3 py-3 text-sm text-white">Filters {staffFilter !== 'all' ? '· 1' : ''}</summary><div className="absolute right-4 z-10 mt-1 min-w-48 rounded-xl border border-white/15 bg-obsidian-800 p-2 shadow-xl"><button type="button" onClick={() => setStaffFilter('all')} className="block min-h-11 w-full text-left text-sm text-white">All groomers</button>{staff.map(([id, name]) => <button key={id} type="button" onClick={() => { setStaffFilter(id); setSelectedId(null); }} className="block min-h-11 w-full text-left text-sm text-white">{name}</button>)}</div></details>
+            <details ref={filterMenuRef} className="relative lg:hidden"><summary className="min-h-11 cursor-pointer rounded-lg border border-white/15 px-3 py-3 text-sm text-white">Filters {staffFilter !== 'all' ? '· 1' : ''}</summary><div className="absolute right-0 z-10 mt-1 min-w-48 rounded-xl border border-white/15 bg-obsidian-800 p-2 shadow-xl"><button type="button" onClick={() => selectStaffFilter('all')} className="block min-h-11 w-full rounded-lg px-2 text-left text-sm text-white">All groomers</button>{staff.map(([id, name]) => <button key={id} type="button" onClick={() => selectStaffFilter(id)} className="block min-h-11 w-full rounded-lg px-2 text-left text-sm text-white">{name}</button>)}</div></details>
           </div>
           {!snapshot ? <p className="rounded-xl border border-white/10 p-6 text-sm text-zinc-400">{phase === 'checking' ? 'Loading salon appointments…' : 'No server schedule is available.'}</p> : rows.length === 0 ? <p className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-zinc-400">No appointments for this UTC day and groomer filter.</p> : <>
-            <div className="live-agenda space-y-2" aria-label="Appointment agenda">
-              {rows.map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} className={`flex min-h-16 w-full items-center gap-3 rounded-xl border p-3 text-left ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`}>
-                <span className="w-24 shrink-0 font-mono text-xs text-zinc-200">{time(item.scheduled_time)}<br />{time(item.reservation_end)}</span>
-                <span className="min-w-0 flex-1"><strong className="block truncate text-sm text-white">{item.pet_name}</strong><span className="block truncate text-xs text-zinc-300">{item.service_package} · {item.staff_name}</span><span className="block truncate text-xs text-zinc-400">{item.client_name}</span></span>
-                <span className="text-xs font-semibold">{statusLabel[item.status]}</span>
-              </button>)}
-              {detail && <div className="lg:hidden">{detail}</div>}
-            </div>
-            <div className="live-timeline hidden overflow-x-auto rounded-xl border border-white/10" aria-label="Appointment timeline">
-              <div className="min-w-[960px]">
-                <div className="flex border-b border-white/10 bg-obsidian-800/70"><span className="w-32 shrink-0 p-3 text-xs text-zinc-400">Groomer</span><div className="relative h-12 flex-1">{Array.from({ length: 13 }, (_, i) => <span key={i} className="absolute top-3 -translate-x-1/2 font-mono text-[10px] text-zinc-400" style={{ left: `${i * 100 / 12}%` }}>{String(i * 2).padStart(2, '0')}:00</span>)}</div></div>
-                {lanes.map(([id, name]) => <div key={id} className="flex min-h-24 border-b border-white/10"><div className="w-32 shrink-0 p-3 text-sm font-semibold text-zinc-200">{name}</div><div className="relative min-h-24 flex-1 bg-[repeating-linear-gradient(to_right,transparent,transparent_calc(8.333%_-_1px),rgba(255,255,255,0.08)_calc(8.333%_-_1px),rgba(255,255,255,0.08)_8.333%)]">{rows.filter((item) => (item.staff_id ?? 'unassigned') === id).map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} title={`${item.pet_name}: ${time(item.scheduled_time)}–${time(item.reservation_end)} UTC`} className={`absolute top-3 h-16 overflow-hidden rounded-lg border px-2 text-left text-xs ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`} style={{ left: `${minute(item.scheduled_time) / 1440 * 100}%`, width: `${Math.max(3, Math.min(1440 - minute(item.scheduled_time), (Date.parse(item.reservation_end) - Date.parse(item.scheduled_time)) / 60000) / 1440 * 100)}%` }}><strong className="block truncate text-white">{item.pet_name}</strong><span className="block truncate">{statusLabel[item.status]}</span></button>)}</div></div>)}
+            <section className="live-agenda space-y-2" aria-label="Appointment agenda">
+              {rows.map((item) => <div key={item.id} className="space-y-2">
+                <button type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} className={`flex min-h-16 w-full items-center gap-3 rounded-xl border p-3 text-left ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`}>
+                  <span className="w-24 shrink-0 font-mono text-xs text-zinc-200">{time(item.scheduled_time)}<br />{time(item.reservation_end)}</span>
+                  <span className="min-w-0 flex-1"><strong className="block truncate text-sm text-white">{item.pet_name}</strong><span className="block truncate text-xs text-zinc-300">{item.service_package} · {item.staff_name}</span><span className="block truncate text-xs text-zinc-400">{item.client_name}</span></span>
+                  <span className="text-xs font-semibold">{statusLabel[item.status]}</span>
+                </button>
+                {selectedId === item.id && detail && <div className="lg:hidden">{detail}</div>}
+              </div>)}
+            </section>
+            <section className="live-timeline hidden rounded-xl border border-white/10" aria-label="Appointment timeline">
+              <div className="overflow-x-auto">
+                <div className="min-w-[960px]">
+                  <div className="flex border-b border-white/10 bg-obsidian-800/70"><span className="w-32 shrink-0 p-3 text-xs text-zinc-400">Groomer</span><div className="relative h-12 flex-1">{Array.from({ length: 13 }, (_, i) => <span key={i} className="absolute top-3 -translate-x-1/2 font-mono text-[10px] text-zinc-400" style={{ left: `${i * 100 / 12}%` }}>{String(i * 2).padStart(2, '0')}:00</span>)}</div></div>
+                  {lanes.map(([id, name]) => {
+                    const laneRows = rows.filter((item) => (item.staff_id ?? 'unassigned') === id);
+                    const trackEnds: number[] = [];
+                    const placed = laneRows.map((item) => {
+                      const startMin = minute(item.scheduled_time);
+                      const durationMin = Math.max(15, (Date.parse(item.reservation_end) - Date.parse(item.scheduled_time)) / 60000);
+                      const endMin = Math.min(1440, startMin + durationMin);
+                      let track = trackEnds.findIndex((end) => end <= startMin);
+                      if (track === -1) {
+                        track = trackEnds.length;
+                        trackEnds.push(endMin);
+                      } else {
+                        trackEnds[track] = endMin;
+                      }
+                      const leftPct = (startMin / 1440) * 100;
+                      const widthPct = Math.min(100 - leftPct, Math.max(3, (durationMin / 1440) * 100));
+                      return { item, track, leftPct, widthPct };
+                    });
+                    const laneHeight = Math.max(96, placed.length ? trackEnds.length * 72 + 24 : 96);
+                    return <div key={id} className="flex border-b border-white/10" style={{ minHeight: `${laneHeight}px` }}><div className="w-32 shrink-0 p-3 text-sm font-semibold text-zinc-200">{name}</div><div className="relative flex-1 bg-[repeating-linear-gradient(to_right,transparent,transparent_calc(8.333%_-_1px),rgba(255,255,255,0.08)_calc(8.333%_-_1px),rgba(255,255,255,0.08)_8.333%)]" style={{ minHeight: `${laneHeight}px` }}>{placed.map(({ item, track, leftPct, widthPct }) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} title={`${item.pet_name}: ${time(item.scheduled_time)}–${time(item.reservation_end)} UTC`} className={`absolute h-16 overflow-hidden rounded-lg border px-2 text-left text-xs ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`} style={{ top: `${12 + track * 72}px`, left: `${leftPct}%`, width: `${widthPct}%` }}><strong className="block truncate text-white">{item.pet_name}</strong><span className="block truncate">{statusLabel[item.status]}</span></button>)}</div></div>;
+                  })}
+                </div>
               </div>
-            </div>
+              {detail && <div className="border-t border-white/10 p-3 lg:hidden">{detail}</div>}
+            </section>
           </>}
         </section>
         <aside className="hidden border-l border-white/10 pl-3 lg:block">{detail ?? <p className="text-sm text-zinc-400">Select an appointment for details.</p>}</aside>
       </div>
-      {message && <p role="alert" className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">{message}</p>}
     </>}
+    {message && <p role="alert" className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">{message}</p>}
   </main>;
 }

@@ -87,14 +87,14 @@ async function runLiveE2E() {
     await fetch(`${BASE_URL}/portal/bespoke-grooming`)
   ).text();
   assert(
-    retentionHtml.includes('VIP Recurring Grooming Memberships') &&
+    retentionHtml.includes('Grooming Membership Offer Preview') &&
       retentionHtml.includes('4-Week Doodle Sanctuary Club') &&
       portalBookingHtml.includes('VIP 4-Week Coat Sanctuary Membership') &&
-      portalBookingHtml.includes('SNAP-A-PHOTO AI COAT'),
-    'Missing VIP Recurring Grooming Membership or AI Coat Photo Estimator'
+      portalBookingHtml.includes('Sample Coat Tier Selector'),
+    'Missing VIP Recurring Grooming Membership or Sample Coat Tier Selector'
   );
   console.log(
-    '✅ [PASS] Self-Booking Portal & Retention (/portal/bespoke-grooming): AI Coat Photo Quote Estimator & VIP Club verified.'
+    '✅ [PASS] Self-Booking Portal & Retention (/portal/bespoke-grooming): Sample Coat Tier Selector & VIP Club verified.'
   );
 
   // 3C. Verify Live Salon Floorplan, Suite Map & Dryer Safety Timer in /dashboard/operations + Vaccine OCR in /dashboard
@@ -116,22 +116,22 @@ async function runLiveE2E() {
     '✅ [PASS] Salon Floorplan & Medical Safety (/dashboard/operations & /dashboard): 6 Suites, Brachycephalic Dryer Cutoff, Cage Reactive Buffer, Vaccine OCR & Vet Handoff Card verified.'
   );
 
-  // 4. Verify Pet Parent Portal (/client/cl-101) Interactive Slider, Social Story Card & 1-Tap Curbside Express Pay
+  // 4. Verify Pet Parent Portal (/client/cl-101) Interactive Slider, Social Story Card & Curbside Checkout Preview
   const clientHtml = await (await fetch(`${BASE_URL}/client/cl-101`)).text();
   assert(
     clientHtml.includes('Interactive Slider') &&
       clientHtml.includes('Share Story Card') &&
-      clientHtml.includes('1-TAP CURBSIDE EXPRESS PAY') &&
-      clientHtml.includes('Auto-Rebook 5-Wk Slot') &&
-      portalBookingHtml.includes('No-Show Protection Hold') &&
-      portalBookingHtml.includes('$0.00 CHARGED TODAY') &&
+      clientHtml.includes('CURBSIDE CHECKOUT PREVIEW') &&
+      clientHtml.includes('Preview 5-Wk Rebook') &&
+      portalBookingHtml.includes('Cancellation policy preview') &&
+      portalBookingHtml.includes('NO CARD IS COLLECTED') &&
       dashboardHtml.includes('Hands-Free Groomer Voice Assistant') &&
       dashboardHtml.includes('Log Weight +0.2 lbs') &&
-      dashboardHtml.includes('Capture $35 No-Show Fee'),
-    'Missing Curbside Express Pay, No-Show Protection Hold, or Hands-Free Voice Assistant'
+      dashboardHtml.includes('Preview $35 No-Show Fee'),
+    'Missing Curbside Checkout Preview, Cancellation Policy Preview, or Hands-Free Voice Assistant'
   );
   console.log(
-    '✅ [PASS] No-Show Deposit Guard ($0 Today / $35 Hold), Hands-Free Voice Assistant ("Hey Pawtrackr") & 1-Tap Curbside Express Pay UI verified.'
+    '✅ [PASS] Cancellation Policy Preview, Hands-Free Voice Assistant ("Hey Pawtrackr") & Curbside Checkout Preview UI verified.'
   );
 
   // 5. Test GET /api/store
@@ -144,6 +144,7 @@ async function runLiveE2E() {
   );
 
   // 6. Test POST /api/bookings (Multi-Pet Household Booking)
+  const futureDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   const bookingRes = await fetch(`${BASE_URL}/api/bookings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -158,25 +159,24 @@ async function runLiveE2E() {
       behavior_tags: ['matted', 'extra_care'],
       behavior_notes: 'E2E automated multi-pet booking test',
       package_id: 'pkg-doodle-sculpt',
-      package_name: 'Signature Teddy Bear & Hand-Scissor',
       addon_ids: ['add-blueberry'],
-      total_amount: 243,
-      scheduled_time: '2026-11-09 10:30 AM',
-      staff_id: 'st-101',
-      duration_minutes: 185,
+      scheduled_time: `${futureDate} 10:30 AM`,
+      staff_id: 'st-102',
       second_pet_name: 'Milo',
       second_pet_breed: 'Toy Cavapoo',
       second_pet_weight_lbs: 16.2,
+      second_package_id: 'pkg-puppy-intro',
     }),
   });
-  assert(bookingRes.status === 200, 'POST /api/bookings failed');
+  assert(bookingRes.status === 200, `POST /api/bookings failed with ${bookingRes.status}`);
   const bookingJson = await bookingRes.json();
   assert(
     bookingJson.ok &&
-      bookingJson.visit.package_name.includes('(+ 2nd Dog: Milo)'),
-    'Multi-pet booking package name not formatted properly'
+      Array.isArray(bookingJson.visits) &&
+      bookingJson.visits.length === 2,
+    'Multi-pet booking visits array not created properly'
   );
-  const createdVisitId = bookingJson.visit.id;
+  const createdVisitId = bookingJson.visits[0].id;
   console.log(
     `✅ [PASS] POST /api/bookings created Multi-Pet Visit #${createdVisitId} (${bookingJson.confirmationCode}).`
   );

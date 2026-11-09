@@ -1,6 +1,6 @@
 'use client';
 
-import React, { use, useMemo, useState } from 'react';
+import React, { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Calendar,
@@ -15,14 +15,17 @@ import {
 } from 'lucide-react';
 import {
   BUSINESSES,
+  INITIAL_VISITS,
   getTenantBundleBySlug,
 } from '@/lib/mock-tenant-data';
-import { BehaviorTag } from '@/types/database';
+import { BehaviorTag, BusinessConfig, Visit } from '@/types/database';
 import { formatCurrency } from '@/lib/pos-math';
+import { isStaffSlotAvailable } from '@/lib/booking-availability';
 import { BehaviorAuraBadge } from '@/components/BehaviorAuraBadge';
 import {
   loadUniversalStore,
   saveUniversalStore,
+  subscribeUniversalStore,
 } from '@/lib/realtime-store';
 
 const TIME_SLOTS = [
@@ -43,7 +46,10 @@ export default function SalonBookingPortalPage({
   const salonSlug = resolvedParams['salon-slug'] || 'bespoke-grooming';
 
   const tenant = useMemo(() => getTenantBundleBySlug(salonSlug), [salonSlug]);
-  const { business, config, staff } = tenant;
+  const { business, config: bundledConfig, staff } = tenant;
+  const [storedConfig, setStoredConfig] = useState<BusinessConfig | null>(null);
+  const [scheduledVisits, setScheduledVisits] = useState<Visit[]>(INITIAL_VISITS);
+  const config = storedConfig?.business_id === business.id ? storedConfig : bundledConfig;
 
   const groomers = useMemo(
     () => staff.filter((s) => s.role !== 'front_desk'),
@@ -60,7 +66,7 @@ export default function SalonBookingPortalPage({
   const [selectedStaffId, setSelectedStaffId] = useState<string>(
     groomers[0]?.id ?? ''
   );
-  const [selectedDate, setSelectedDate] = useState<string>('2026-11-08');
+  const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedSlot, setSelectedSlot] = useState<string>('10:30 AM');
 
   // Pet & Parent Details
@@ -90,9 +96,49 @@ export default function SalonBookingPortalPage({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [bookingConfirmation, setBookingConfirmation] = useState<{
     code: string;
+    clientId: string;
     totalDollars: number;
     loyaltyPointsEstimate: number;
   } | null>(null);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setSelectedDate(`${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`);
+  }, []);
+
+  useEffect(() => {
+    setStoredConfig(null);
+    setSelectedPackageId(bundledConfig.custom_settings.packages[0]?.id ?? '');
+    setSecondPackageId(bundledConfig.custom_settings.packages[0]?.id ?? '');
+    setSelectedAddonIds(bundledConfig.custom_settings.addons[0] ? [bundledConfig.custom_settings.addons[0].id] : []);
+    setSelectedStaffId(groomers[0]?.id ?? '');
+    setBookingConfirmation(null);
+    setBookingError(null);
+  }, [business.id, bundledConfig, groomers]);
+
+  useEffect(() => {
+    const applyCatalog = (store: ReturnType<typeof loadUniversalStore>) => {
+      setScheduledVisits(store.visits);
+      const candidate = store.configs[business.id];
+      if (candidate?.business_id === business.id &&
+          Array.isArray(candidate.custom_settings?.packages) && candidate.custom_settings.packages.length > 0 &&
+          Array.isArray(candidate.custom_settings?.addons)) {
+        setStoredConfig(candidate);
+      }
+    };
+    applyCatalog(loadUniversalStore());
+    return subscribeUniversalStore(applyCatalog, business.id, undefined, 60_000);
+  }, [business.id]);
+
+  useEffect(() => {
+    setSelectedPackageId((current) => config.custom_settings.packages.some((item) => item.id === current)
+      ? current : config.custom_settings.packages[0]?.id ?? '');
+    setSecondPackageId((current) => config.custom_settings.packages.some((item) => item.id === current)
+      ? current : config.custom_settings.packages[0]?.id ?? '');
+    setSelectedAddonIds((current) => current.filter((id) => config.custom_settings.addons.some((item) => item.id === id)));
+  }, [config]);
 
   const selectedPackage = useMemo(
     () =>
@@ -158,6 +204,11 @@ export default function SalonBookingPortalPage({
     );
   }, [selectedPackage, includeSecondPet, secondSelectedPackage]);
 
+  const slotIsAvailable = (slot: string) => !selectedDate || isStaffSlotAvailable(
+    scheduledVisits, business.id, selectedStaffId, `${selectedDate} ${slot}`, combinedDurationMinutes
+  );
+  const selectedSlotAvailable = slotIsAvailable(selectedSlot);
+
   const vipClubSavingsDollars = useMemo(() => {
     if (!joinVipClub) return 0;
     return Number(((selectedPackage?.price ?? 0) * 0.15).toFixed(2));
@@ -202,6 +253,11 @@ export default function SalonBookingPortalPage({
 
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedSlotAvailable) {
+      setBookingError('This groomer is busy at the selected time. Choose another slot or groomer.');
+      return;
+    }
+    setBookingError(null);
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/bookings', {
@@ -214,65 +270,48 @@ export default function SalonBookingPortalPage({
           client_email: parentEmail,
           pet_name: petName,
           pet_breed: petBreed,
-          pet_weight_lbs: parseFloat(petWeight) || 22,
+          pet_weight_lbs: Number(petWeight),
           behavior_tags: disclosedTags,
           behavior_notes: coatNotes,
           package_id: selectedPackage.id,
-          package_name: selectedPackage.name,
           addon_ids: selectedAddonIds,
-          total_amount: estimatedSubtotal,
           scheduled_time: `${selectedDate} ${selectedSlot}`,
           staff_id: selectedStaffId,
-          duration_minutes: combinedDurationMinutes,
+          join_vip_club: joinVipClub,
           ...(includeSecondPet
             ? {
                 second_pet_name: secondPetName,
                 second_pet_breed: secondPetBreed,
-                second_pet_weight_lbs: parseFloat(secondPetWeight) || 16,
+                second_pet_weight_lbs: Number(secondPetWeight),
+                second_package_id: secondPackageId,
               }
             : {}),
         }),
       });
       const data = await res.json();
-      // Sync new online booking immediately to Universal Store so Command Center updates live across tabs/devices
+      if (!res.ok || data.ok !== true || !data.client || !Array.isArray(data.pets) || !Array.isArray(data.visits) ||
+          data.client.business_id !== business.id || !data.pets.length || !data.visits.length ||
+          data.pets.some((pet: { business_id: string; client_id: string }) => pet.business_id !== business.id || pet.client_id !== data.client.id) ||
+          data.visits.some((visit: { business_id: string; client_id: string }) => visit.business_id !== business.id || visit.client_id !== data.client.id)) {
+        throw new Error(data.error || 'Booking could not be saved. Please try again.');
+      }
+      // A successful demo write supplies the records shown in the command center.
       const store = loadUniversalStore();
-      const newOnlineVisit = {
-        id: data.visit?.id ?? `vis-${Date.now().toString(36)}`,
-        business_id: business.id,
-        client_id: 'cl-101',
-        pet_id: 'pet-101',
-        staff_id: selectedStaffId,
-        status: 'booked' as const,
-        booking_source: 'online' as const,
-        package_id: selectedPackage.id,
-        package_name: includeSecondPet
-          ? `${selectedPackage.name} (+ 2nd Dog: ${secondPetName})`
-          : selectedPackage.name,
-        base_price: selectedPackage.price,
-        addon_ids: selectedAddonIds,
-        total_amount: estimatedSubtotal,
-        scheduled_time: `${selectedDate}T10:30:00`,
-        time_label: selectedSlot,
-        duration_minutes: combinedDurationMinutes,
-        bay_or_van: includeSecondPet
-          ? 'Multi-Pet Household Suite'
-          : 'Online Self-Booked Slot',
-        report_card_notes: includeSecondPet
-          ? `${coatNotes} [Multi-Pet Household: ${petName} & ${secondPetName}]`
-          : coatNotes,
-        weight_logged_lbs: parseFloat(petWeight) || 24.6,
-        created_at: new Date().toISOString(),
-      };
       saveUniversalStore({
-        visits: [newOnlineVisit, ...store.visits],
+        clients: [data.client, ...store.clients],
+        pets: [...data.pets, ...store.pets],
+        visits: [...data.visits, ...store.visits],
       });
 
       setBookingConfirmation({
-        code: data.confirmationCode ?? 'PT-892XL',
-        totalDollars: estimatedSubtotal,
+        code: data.confirmationCode,
+        clientId: data.client.id,
+        totalDollars: data.totalDollars,
         loyaltyPointsEstimate:
-          Math.floor(estimatedSubtotal) * config.loyalty_points_per_dollar,
+          Math.floor(data.totalDollars) * config.loyalty_points_per_dollar,
       });
+    } catch (error) {
+      setBookingError(error instanceof Error ? error.message : 'Booking could not be saved. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -314,12 +353,12 @@ export default function SalonBookingPortalPage({
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-0.5 text-xs font-semibold text-emerald-300 border border-emerald-500/30">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Verified Pawtrackr Sanctuary
+                Sample salon profile
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-3 py-0.5 text-xs font-bold text-amber-300">
                 <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                 {config.custom_settings.rating} (
-                {config.custom_settings.reviewCount}Verified Reviews)
+                {config.custom_settings.reviewCount} illustrative reviews)
               </span>
             </div>
 
@@ -344,18 +383,19 @@ export default function SalonBookingPortalPage({
 
           <div className="rounded-2xl border border-periwinkle-500/30 bg-obsidian-900/90 p-4 text-right">
             <div className="text-[11px] uppercase tracking-wider text-zinc-400">
-              Loyalty Program Active
+              Sample loyalty offer
             </div>
             <div className="mt-0.5 text-base font-bold text-periwinkle-300">
               Earn {config.loyalty_points_per_dollar}x Points Per $1
             </div>
             <div className="mt-0.5 text-[11px] text-emerald-400">
-              Zero Phone Tag • Instant SMS Confirmation
+              Demo booking record · no SMS sent
             </div>
           </div>
         </div>
       </div>
 
+      {bookingError && <p role="alert" className="mt-6 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">{bookingError}</p>}
       {bookingConfirmation ? (
         <div className="mt-8 rounded-3xl border border-emerald-500/40 bg-obsidian-800/95 p-8 text-center shadow-emerald-glow">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-obsidian-950">
@@ -365,10 +405,10 @@ export default function SalonBookingPortalPage({
             CONFIRMATION #{bookingConfirmation.code}
           </span>
           <h2 className="mt-3 text-3xl font-extrabold text-white">
-            {petName} is Booked at {business.name}!
+            Demo booking saved for {petName}
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-sm text-zinc-300">
-            Synced directly to {business.name}&apos;s Unified Command Calendar
+            Saved to the local demo calendar for {business.name}
             for{' '}
             <strong className="text-white">
               {selectedDate} at {selectedSlot}
@@ -391,7 +431,7 @@ export default function SalonBookingPortalPage({
               </div>
             </div>
             <div>
-              <div className="text-zinc-400">Loyalty Points Upon Visit</div>
+              <div className="text-zinc-400">Potential points after paid visit</div>
               <div className="mt-1 font-bold text-periwinkle-300">
                 +{bookingConfirmation.loyaltyPointsEstimate} pts
               </div>
@@ -406,7 +446,7 @@ export default function SalonBookingPortalPage({
               View Booking in Salon Command Center →
             </Link>
             <Link
-              href="/client/cl-101"
+              href={`/client/${bookingConfirmation.clientId}`}
               className="rounded-xl border border-white/[0.12] bg-obsidian-900 px-5 py-3 text-xs font-semibold text-white hover:bg-obsidian-700"
             >
               Open Pet Parent Portal & Report Cards
@@ -425,15 +465,14 @@ export default function SalonBookingPortalPage({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="rounded-full bg-periwinkle-500/20 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase text-periwinkle-300">
-                    SNAP-A-PHOTO AI COAT & PRICE ESTIMATOR
+                    SAMPLE COAT PROFILE QUOTE PREVIEW
                   </span>
                   <h2 className="mt-1.5 text-lg font-bold text-white">
                     Not Sure Which Package Fits Your Dog’s Coat?
                   </h2>
                   <p className="text-xs text-zinc-400">
-                    Select a coat photo profile below (or upload a photo from
-                    your phone/PC) to auto-detect curl density, realistic groom
-                    duration, and transparent pricing.
+                    Select an illustrative coat profile below to prefill a pet
+                    description and package. No photo analysis is performed.
                   </p>
                 </div>
               </div>
@@ -492,10 +531,9 @@ export default function SalonBookingPortalPage({
               {aiQuotePreset && (
                 <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3.5 py-2 text-xs text-emerald-200">
                   <span>
-                    ✓ AI Coat Analysis Applied: Pre-selected{' '}
+                    Sample profile applied: pre-selected{' '}
                     <strong>{selectedPackage.name}</strong> ({petWeight} lbs • ~
-                    {combinedDurationMinutes} mins) with transparent pricing
-                    locked in.
+                    {combinedDurationMinutes} mins) with a demo price estimate.
                   </span>
                 </div>
               )}
@@ -514,10 +552,12 @@ export default function SalonBookingPortalPage({
                 {config.custom_settings.packages.map((pkg) => {
                   const active = pkg.id === selectedPackage.id;
                   return (
-                    <div
+                    <button
                       key={pkg.id}
+                      type="button"
                       onClick={() => setSelectedPackageId(pkg.id)}
-                      className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                      aria-pressed={active}
+                      className={`w-full cursor-pointer rounded-2xl border p-4 text-left transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-periwinkle-400 ${
                         active
                           ? 'border-periwinkle-500 bg-periwinkle-500/15 shadow-periwinkle-glow'
                           : 'border-white/[0.08] bg-obsidian-900/70 hover:border-white/[0.18]'
@@ -548,7 +588,7 @@ export default function SalonBookingPortalPage({
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -566,9 +606,8 @@ export default function SalonBookingPortalPage({
                       </span>
                     </div>
                     <p className="mt-0.5 text-[11px] text-zinc-300">
-                      Lock in your recurring 4-week slot, waive dematting fees,
-                      and save {formatCurrency((selectedPackage?.price ?? 0) * 0.15)} on
-                      today’s groom. Cancel anytime.
+                      Preview a 15% package discount worth {formatCurrency((selectedPackage?.price ?? 0) * 0.15)}.
+                      This does not start a subscription or reserve recurring slots.
                     </p>
                   </div>
                   <button
@@ -581,8 +620,8 @@ export default function SalonBookingPortalPage({
                     }`}
                   >
                     {joinVipClub
-                      ? '✓ VIP 4-Week Club Active (-15%)'
-                      : '+ Join 4-Week VIP Club'}
+                      ? '✓ Preview discount applied (-15%)'
+                      : 'Preview 15% club discount'}
                   </button>
                 </div>
               </div>
@@ -662,16 +701,20 @@ export default function SalonBookingPortalPage({
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-zinc-300">
-                    Real-Time Open Slots
+                    Sample preferred time slots
                   </label>
                   <div className="mt-1.5 grid grid-cols-3 gap-1.5">
                     {TIME_SLOTS.map((slot) => (
                       <button
                         key={slot}
                         type="button"
+                        disabled={!slotIsAvailable(slot)}
+                        aria-label={`${slot}${slotIsAvailable(slot) ? '' : ' unavailable'}`}
                         onClick={() => setSelectedSlot(slot)}
                         className={`rounded-lg border py-2 font-mono text-[11px] font-semibold transition ${
-                          selectedSlot === slot
+                          !slotIsAvailable(slot)
+                            ? 'cursor-not-allowed border-white/[0.06] bg-obsidian-900/40 text-zinc-600'
+                            : selectedSlot === slot
                             ? 'border-periwinkle-500 bg-periwinkle-500 text-obsidian-950'
                             : 'border-white/[0.08] bg-obsidian-900 text-zinc-300 hover:border-white/[0.2]'
                         }`}
@@ -680,6 +723,8 @@ export default function SalonBookingPortalPage({
                       </button>
                     ))}
                   </div>
+                  <p className="mt-2 text-[11px] text-zinc-400">Demo availability preview from the latest local schedule. The server checks again when you book.</p>
+                  {!selectedSlotAvailable && selectedDate && <p role="status" className="mt-2 text-xs text-amber-300">The selected time is now occupied. Choose another slot or groomer.</p>}
                 </div>
               </div>
             </div>
@@ -724,6 +769,9 @@ export default function SalonBookingPortalPage({
                   <input
                     type="number"
                     step="0.1"
+                    min="1"
+                    max="300"
+                    required
                     value={petWeight}
                     onChange={(e) => setPetWeight(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-white/[0.12] bg-obsidian-900 px-3 py-2 text-xs text-white"
@@ -794,6 +842,9 @@ export default function SalonBookingPortalPage({
                       <input
                         type="number"
                         step="0.1"
+                        min="1"
+                        max="300"
+                        required
                         value={secondPetWeight}
                         onChange={(e) => setSecondPetWeight(e.target.value)}
                         className="mt-1 w-full rounded-xl border border-white/[0.12] bg-obsidian-800 px-3 py-2 text-xs text-white"
@@ -868,7 +919,7 @@ export default function SalonBookingPortalPage({
                 </div>
                 <div>
                   <label className="block text-xs text-zinc-300">
-                    Mobile SMS Phone *
+                    Contact phone *
                   </label>
                   <input
                     type="text"
@@ -898,7 +949,7 @@ export default function SalonBookingPortalPage({
               <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-periwinkle-400">
-                    Instant Self-Booking Summary
+                    Demo Booking Summary
                   </span>
                   <h3 className="text-base font-bold text-white">
                     {petName} ({petBreed})
@@ -946,7 +997,7 @@ export default function SalonBookingPortalPage({
 
                 {joinVipClub && (
                   <div className="flex justify-between text-emerald-400">
-                    <span>VIP 4-Week Membership (-15%):</span>
+                    <span>Club discount preview (-15%):</span>
                     <span className="font-mono">
                       -{formatCurrency(vipClubSavingsDollars)}
                     </span>
@@ -985,10 +1036,10 @@ export default function SalonBookingPortalPage({
                 <div className="rounded-2xl border border-periwinkle-500/35 bg-obsidian-900/90 p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-white">
-                      No-Show Protection Hold
+                      Payment method preview
                     </span>
                     <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300">
-                      $0.00 CHARGED TODAY
+                      NO PAYMENT COLLECTED
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -1001,9 +1052,9 @@ export default function SalonBookingPortalPage({
                           : 'border-white/[0.08] bg-obsidian-800 text-zinc-400'
                       }`}
                     >
-                      <div>Google / Apple Pay</div>
+                      <div>Wallet preview</div>
                       <div className="text-[9px] text-emerald-300">
-                        1-Tap Token Vault
+                        No wallet connected
                       </div>
                     </button>
                     <button
@@ -1015,26 +1066,25 @@ export default function SalonBookingPortalPage({
                           : 'border-white/[0.08] bg-obsidian-800 text-zinc-400'
                       }`}
                     >
-                      <div>Visa •••• 4829</div>
+                      <div>Card preview</div>
                       <div className="text-[9px] text-periwinkle-300">
-                        Saved Stripe Vault
+                        No card stored
                       </div>
                     </button>
                   </div>
                   <p className="text-[10px] text-zinc-400 leading-relaxed">
-                    Protects your groomer’s table time with a $35 hold only if
-                    cancelled within 24 hrs (split 50/50 with your stylist).
+                    No card is collected or charged, and no cancellation hold is placed in this demo.
                   </p>
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !selectedDate || !selectedSlotAvailable}
                 className="w-full rounded-2xl bg-emerald-500 py-3.5 text-xs font-bold text-obsidian-950 shadow-emerald-glow transition hover:bg-emerald-400 disabled:opacity-50"
               >
                 {isSubmitting
-                  ? 'Syncing to Salon Calendar...'
+                  ? 'Saving demo booking...'
                   : `Confirm Booking for ${petName} →`}
               </button>
             </div>

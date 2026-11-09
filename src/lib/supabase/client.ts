@@ -1,37 +1,33 @@
 // ============================================================================
-// PAWTRACKR WEB — SUPABASE MULTI-TENANT CLIENT & TENANT-SCOPED QUERIES
-// Automatically scopes queries to `business_id` and falls back cleanly to
-// local-first state when running without external cloud credentials.
+// PAWTRACKR WEB — OPTIONAL SUPABASE BROWSER CLIENT
+// This client does not authorize a tenant. Database RLS must derive access
+// from a verified user and active staff membership, never a browser selection.
 // ============================================================================
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
-    supabaseAnonKey &&
+    supabasePublishableKey &&
     !supabaseUrl.includes('your-project-id')
 );
 
 let browserSupabaseClient: SupabaseClient | null = null;
 
-export function getSupabaseClient(tenantBusinessId?: string): SupabaseClient | null {
+export function getSupabaseClient(): SupabaseClient | null {
   if (!isSupabaseConfigured) {
     return null;
   }
 
   if (!browserSupabaseClient) {
-    browserSupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+    browserSupabaseClient = createClient(supabaseUrl, supabasePublishableKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-      },
-      global: {
-        headers: tenantBusinessId
-          ? { 'x-pawtrackr-business-id': tenantBusinessId }
-          : {},
       },
     });
   }

@@ -4,14 +4,14 @@ import { TopNav } from '@/components/TopNav';
 import { SupportAndTourWidget } from '@/components/SupportAndTourWidget';
 
 export const metadata: Metadata = {
-  title: 'Pawtrackr Web — Universal Multi-Tenant SaaS for Pet Grooming Salons',
+  title: 'Pawtrackr Web — Pet Grooming Workspace Demo',
   description:
-    'Built to outperform MoeGo, DaySmart Pet, and PawLoyalty across Android, Windows, iOS, macOS, and Web. Multi-tenant Supabase RLS isolation, Sub-10ms Multi-Token Search, Behavior Auras, and 4-Step Atomic POS Checkout.',
+    'Explore Pawtrackr’s pet grooming dashboard demo, booking flow, client portal, and checkout analytics.',
   manifest: '/manifest.json',
   openGraph: {
-    title: 'Pawtrackr Web — #1 Enterprise Multi-Tenant Pet Grooming OS',
+    title: 'Pawtrackr Web — Pet Grooming Workspace Demo',
     description:
-      'Zero-lag sub-10ms search, 4-step atomic POS checkout, luminous Behavior Auras, and strict PostgreSQL Row-Level Security.',
+      'Preview the Pawtrackr grooming dashboard, client portal, booking flow, and checkout analytics with sample data.',
     type: 'website',
   },
 };

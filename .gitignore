@@ -23,3 +23,5 @@ yarn-error.log*
 *.pem
 .vercel
 *.tsbuildinfo
+/playwright-report/
+/test-results/

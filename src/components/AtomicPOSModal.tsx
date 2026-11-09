@@ -29,6 +29,7 @@ import {
   toCents,
 } from '@/lib/pos-math';
 import { BehaviorAuraBadge } from './BehaviorAuraBadge';
+import { parseDemoCheckoutResponse } from '@/lib/demo-checkout-response';
 
 interface AtomicPOSModalProps {
   visit: Visit;
@@ -69,6 +70,7 @@ export function AtomicPOSModal({
   const [showQrPayPass, setShowQrPayPass] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const selectedPackage = useMemo(() => {
     return (
@@ -121,6 +123,7 @@ export function AtomicPOSModal({
   };
 
   const handleAtomicCommit = async () => {
+    setCheckoutError(null);
     setIsProcessing(true);
     try {
       const response = await fetch('/api/checkout', {
@@ -143,23 +146,16 @@ export function AtomicPOSModal({
       });
 
       const data = await response.json();
-      const tx: Transaction = data.transaction ?? {
-        id: `tx-${Date.now().toString(36)}`,
-        business_id: visit.business_id,
-        visit_id: visit.id,
-        subtotal: breakdown.subtotalDollars,
-        discount: breakdown.discountDollars,
-        tax: breakdown.taxDollars,
-        tip: breakdown.tipDollars,
-        amount: breakdown.totalDollars,
-        payment_method: paymentMethod,
-        stripe_payment_intent_id: `pi_live_${Date.now().toString(36)}`,
-        status: 'completed',
-        created_at: new Date().toISOString(),
-      };
+      const tx = parseDemoCheckoutResponse(response.ok, data, {
+        businessId: visit.business_id,
+        visitId: visit.id,
+        totalCents: breakdown.totalCents,
+      });
 
       setCompletedTx(tx);
       onCompleteTransaction(tx, breakdown.loyaltyPointsEarned);
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : 'Demo checkout could not be recorded.');
     } finally {
       setIsProcessing(false);
     }
@@ -177,7 +173,7 @@ export function AtomicPOSModal({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-white">
-                  4-Step Atomic POS Checkout
+                  4-Step Demo POS Checkout
                 </h2>
                 <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300">
                   DECIMAL(10,2) ENGINE
@@ -275,24 +271,24 @@ export function AtomicPOSModal({
                     {breakdown.verificationHash}
                   </span>
                   <h3 className="mt-3 text-2xl font-bold text-white">
-                    Atomic Checkout Settled ({formatCents(breakdown.totalCents)}
+                    Demo Checkout Recorded ({formatCents(breakdown.totalCents)}
                     )
                   </h3>
                   <p className="mt-1 text-sm text-zinc-300">
-                    Drawer balanced to the exact penny. Visit marked{' '}
+                    No payment was charged. The demo visit was marked{' '}
                     <span className="font-semibold text-emerald-300">
                       COMPLETED
                     </span>{' '}
-                    & +{breakdown.loyaltyPointsEarned} loyalty points credited
+                    & +{breakdown.loyaltyPointsEarned} demo loyalty points added
                     to {client.name}.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3 rounded-xl border border-white/[0.08] bg-obsidian-900/80 p-3 text-xs">
                   <div>
-                    <div className="text-zinc-400">Stripe Intent</div>
+                    <div className="text-zinc-400">Demo record</div>
                     <div className="mt-0.5 font-mono text-zinc-200 truncate">
-                      {completedTx.stripe_payment_intent_id}
+                      {completedTx.id}
                     </div>
                   </div>
                   <div>
@@ -486,8 +482,7 @@ export function AtomicPOSModal({
                         Step 3: Groomer Gratuity & Basis-Point Tax Verification
                       </h3>
                       <p className="text-xs text-zinc-400">
-                        100% of gratuity routes directly to assigned stylist
-                        ledger via Stripe Connect split.
+                        The demo calculates gratuity for the selected stylist. No Stripe transfer is made.
                       </p>
                     </div>
 
@@ -596,9 +591,7 @@ export function AtomicPOSModal({
                         Step 4: Select Atomic Tender Method
                       </h3>
                       <p className="text-xs text-zinc-400">
-                        Instant settlement across Android, Windows, iOS & Web
-                        via Contactless NFC (Google Pay / Apple Pay / Samsung
-                        Pay), Stripe Terminal, or Cash Drawer.
+                        Choose a tender method for the sample record. This demo does not charge a card or collect cash.
                       </p>
                     </div>
 
@@ -606,20 +599,20 @@ export function AtomicPOSModal({
                       {[
                         {
                           id: 'apple_pay' as PaymentMethod,
-                          label: 'Tap-to-Pay / NFC',
-                          sub: 'Google • Apple • Samsung',
+                          label: 'NFC preview',
+                          sub: 'No charge made',
                           icon: Smartphone,
                         },
                         {
                           id: 'card' as PaymentMethod,
-                          label: 'Stripe Reader',
-                          sub: 'Card on File / Chip',
+                          label: 'Card preview',
+                          sub: 'No reader connected',
                           icon: CreditCard,
                         },
                         {
                           id: 'cash' as PaymentMethod,
-                          label: 'Cash Drawer',
-                          sub: 'Exact Change Calc',
+                          label: 'Cash preview',
+                          sub: 'Change calculation',
                           icon: DollarSign,
                         },
                       ].map((m) => {
@@ -681,11 +674,10 @@ export function AtomicPOSModal({
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="text-xs font-bold text-white">
-                            Customer Scan-to-Pay QR Pass (All Phones)
+                            Sample QR Layout
                           </div>
                           <div className="text-[11px] text-zinc-400">
-                            Let {client.name} scan with any Android or iPhone
-                            camera to pay {formatCents(breakdown.totalCents)}
+                            Illustrative layout only. It cannot take a payment of {formatCents(breakdown.totalCents)}.
                           </div>
                         </div>
                         <button
@@ -693,7 +685,7 @@ export function AtomicPOSModal({
                           onClick={() => setShowQrPayPass((prev) => !prev)}
                           className="rounded-xl border border-periwinkle-500/40 bg-periwinkle-500/15 px-3 py-1.5 text-xs font-bold text-periwinkle-200 hover:bg-periwinkle-500/25"
                         >
-                          {showQrPayPass ? 'Hide QR Pass' : 'Show QR Pay Code'}
+                          {showQrPayPass ? 'Hide sample' : 'Show sample'}
                         </button>
                       </div>
 
@@ -702,7 +694,7 @@ export function AtomicPOSModal({
                           <svg
                             viewBox="0 0 110 110"
                             className="h-24 w-24 shrink-0 rounded-xl bg-white p-2"
-                            aria-label="Scannable POS Checkout QR Code"
+                            aria-label="Decorative sample QR layout, not scannable"
                           >
                             <rect x="5" y="5" width="30" height="30" fill="none" stroke="#0B090E" strokeWidth="6" />
                             <rect x="14" y="14" width="12" height="12" fill="#0B090E" />
@@ -722,11 +714,10 @@ export function AtomicPOSModal({
                           </svg>
                           <div className="space-y-1 text-xs">
                             <div className="font-mono text-[11px] font-bold text-emerald-300">
-                              pawtrackr.live/client/{client.id}?pay={visit.id}
+                              Example checkout link layout
                             </div>
                             <p className="text-[11px] text-zinc-300">
-                              Supports 1-tap Google Pay, Apple Pay, Samsung Pay,
-                              and Link across Android, iOS, Windows & Web.
+                              No payment link or QR code has been generated.
                             </p>
                           </div>
                         </div>
@@ -736,10 +727,9 @@ export function AtomicPOSModal({
                     <div className="flex items-center gap-2.5 rounded-xl border border-periwinkle-500/30 bg-periwinkle-500/10 p-3 text-xs text-periwinkle-200">
                       <Sparkles className="h-4 w-4 shrink-0 text-periwinkle-400" />
                       <span>
-                        Completing this checkout automatically awards{' '}
+                        Recording this demo checkout adds{' '}
                         <strong>+{breakdown.loyaltyPointsEarned} pts</strong> to{' '}
-                        {client.name} and publishes {pet.name}&apos;s Digital
-                        Report Card.
+                        {client.name} in the local demo profile. Report cards are managed separately.
                       </span>
                     </div>
                   </div>
@@ -781,13 +771,14 @@ export function AtomicPOSModal({
                     >
                       <Lock className="h-4 w-4" />
                       {isProcessing
-                        ? 'Settling Atomic Ledger...'
-                        : `Authorize & Settle ${formatCents(
+                        ? 'Recording demo checkout...'
+                        : `Record demo checkout ${formatCents(
                             breakdown.totalCents
                           )}`}
                     </button>
                   )}
                 </div>
+                {checkoutError && <p role="alert" className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-300">{checkoutError}</p>}
               </>
             )}
           </div>

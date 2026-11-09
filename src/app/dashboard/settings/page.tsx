@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -19,8 +19,9 @@ import {
   BUSINESS_CONFIGS,
   TENANT_BESPOKE_ID,
 } from '@/lib/mock-tenant-data';
-import { ServiceAddon, ServicePackage } from '@/types/database';
+import { BusinessConfig, ServiceAddon, ServicePackage } from '@/types/database';
 import { formatCurrency } from '@/lib/pos-math';
+import { hasDemoStoreConflict, loadUniversalStore, saveUniversalStore } from '@/lib/realtime-store';
 
 export default function SalonSettingsCatalogBuilderPage() {
   const [activeBusinessId, setActiveBusinessId] =
@@ -35,6 +36,9 @@ export default function SalonSettingsCatalogBuilderPage() {
   );
   const [loyaltyMultiplier, setLoyaltyMultiplier] = useState<string>(
     String(initialConfig.loyalty_points_per_dollar)
+  );
+  const [weeklyTarget, setWeeklyTarget] = useState<string>(
+    initialConfig.custom_settings.weekly_checkout_target_cents === undefined ? '' : String(initialConfig.custom_settings.weekly_checkout_target_cents / 100)
   );
   const [packages, setPackages] = useState<ServicePackage[]>(
     initialConfig.custom_settings.packages
@@ -54,39 +58,107 @@ export default function SalonSettingsCatalogBuilderPage() {
   const [newAddonPrice, setNewAddonPrice] = useState<string>('22');
 
   const [savedBanner, setSavedBanner] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [syncConflict, setSyncConflict] = useState(false);
+
+  const showConfig = useCallback((config: BusinessConfig) => {
+    setTaxRate(String(config.tax_rate));
+    setLoyaltyMultiplier(String(config.loyalty_points_per_dollar));
+    setWeeklyTarget(config.custom_settings.weekly_checkout_target_cents === undefined ? '' : String(config.custom_settings.weekly_checkout_target_cents / 100));
+    setPackages(config.custom_settings.packages);
+    setAddons(config.custom_settings.addons);
+    setSavedBanner(false);
+    setSaveError(null);
+  }, []);
+
+  useEffect(() => {
+    showConfig(loadUniversalStore().configs[activeBusinessId] ?? BUSINESS_CONFIGS[activeBusinessId]);
+  }, [activeBusinessId, showConfig]);
+
+  useEffect(() => {
+    const updateConflict = () => setSyncConflict(hasDemoStoreConflict());
+    updateConflict();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'pawtrackr_demo_store_conflict_v1') updateConflict();
+    };
+    window.addEventListener('pawtrackr-demo-sync-status', updateConflict);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('pawtrackr-demo-sync-status', updateConflict);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
 
   const handleAddPackage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPkgName) return;
+    const price = Number(newPkgPrice);
+    const duration = Number(newPkgDuration);
+    if (!newPkgName.trim() || !Number.isFinite(price) || price < 0 || !Number.isInteger(duration) || duration < 15 || duration > 480) {
+      setSaveError('Enter a package name, a nonnegative price, and a duration from 15 to 480 minutes.');
+      return;
+    }
     const pkg: ServicePackage = {
       id: `pkg-${Date.now().toString(36)}`,
-      name: newPkgName,
+      name: newPkgName.trim(),
       description:
         newPkgDesc ||
         'Custom breed-specific grooming package with ozone bath, velocity fluff dry, and scissor finish.',
-      price: parseFloat(newPkgPrice) || 120,
-      durationMinutes: parseInt(newPkgDuration, 10) || 90,
+      price,
+      durationMinutes: duration,
       badge: 'Custom Tier',
     };
     setPackages((prev) => [...prev, pkg]);
     setNewPkgName('');
     setNewPkgDesc('');
+    setSaveError(null);
   };
 
   const handleAddAddon = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAddonName) return;
+    const price = Number(newAddonPrice);
+    if (!newAddonName.trim() || !Number.isFinite(price) || price < 0) {
+      setSaveError('Enter an add-on name and a nonnegative price.');
+      return;
+    }
     const addon: ServiceAddon = {
       id: `add-${Date.now().toString(36)}`,
-      name: newAddonName,
-      price: parseFloat(newAddonPrice) || 20,
+      name: newAddonName.trim(),
+      price,
       category: 'spa',
     };
     setAddons((prev) => [...prev, addon]);
     setNewAddonName('');
+    setSaveError(null);
   };
 
   const handleSaveCatalog = () => {
+    const parsedTax = Number(taxRate);
+    const parsedLoyalty = Number(loyaltyMultiplier);
+    const targetCents = weeklyTarget.trim() === '' ? undefined : Math.round(Number(weeklyTarget) * 100);
+    if (!Number.isFinite(parsedTax) || parsedTax < 0 || parsedTax > 30 ||
+        (targetCents !== undefined && (!Number.isSafeInteger(targetCents) || targetCents < 1 || targetCents > 100_000_000 || Math.abs(Number(weeklyTarget) * 100 - targetCents) > 0.000001)) ||
+        !Number.isInteger(parsedLoyalty) || parsedLoyalty < 1 || parsedLoyalty > 10 ||
+        packages.length === 0 || packages.some((item) => !Number.isFinite(item.price) || item.price < 0 || !Number.isInteger(item.durationMinutes) || item.durationMinutes < 15) ||
+        addons.some((item) => !Number.isFinite(item.price) || item.price < 0)) {
+      setSaveError('Check the tax rate, loyalty multiplier, weekly target, and catalog. At least one valid package is required.');
+      setSavedBanner(false);
+      return;
+    }
+    const store = loadUniversalStore();
+    const base = store.configs[business.id] ?? BUSINESS_CONFIGS[business.id];
+    const updated: BusinessConfig = {
+      ...base,
+      tax_rate: parsedTax,
+      loyalty_points_per_dollar: parsedLoyalty,
+      custom_settings: { ...base.custom_settings, packages, addons, weekly_checkout_target_cents: targetCents },
+    };
+    saveUniversalStore({ configs: { ...store.configs, [business.id]: updated } });
+    if (JSON.stringify(loadUniversalStore().configs[business.id]) !== JSON.stringify(updated)) {
+      setSaveError('This browser could not save the demo catalog. Check available storage and try again.');
+      setSavedBanner(false);
+      return;
+    }
+    setSaveError(null);
     setSavedBanner(true);
     setTimeout(() => setSavedBanner(false), 3500);
   };
@@ -116,17 +188,18 @@ export default function SalonSettingsCatalogBuilderPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-obsidian-950 shadow-emerald-glow hover:bg-emerald-400"
           >
             <Save className="h-4 w-4" />
-            Save `business_configs` JSONB
+            Save demo settings
           </button>
         </div>
       </div>
 
+      {saveError && <p role="alert" className="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">{saveError}</p>}
+      {syncConflict && <p role="alert" className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">Another browser changed the demo ledger. Your local edits are preserved but were not synced; shared values may differ.</p>}
       {savedBanner && (
         <div className="mb-6 flex items-center justify-between rounded-2xl border border-emerald-500/40 bg-emerald-500/15 px-5 py-3 text-xs font-semibold text-emerald-300 shadow-emerald-glow">
           <span className="inline-flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4" />
-            Tenant `business_configs` JSONB catalog & basis-point tax rate
-            synced for {business.name}!
+            Demo settings saved in this browser for {business.name}. Server sync may still be pending.
           </span>
           <span className="font-mono">business_id: {business.id.slice(0, 8)}</span>
         </div>
@@ -144,11 +217,11 @@ export default function SalonSettingsCatalogBuilderPage() {
               {business.name} — Service Catalog & POS Config
             </h1>
             <p className="mt-1 text-xs text-zinc-400">
-              Changes made here immediately power your public booking portal (
+              Saved demo catalog choices appear in the public booking preview (
               <code className="text-periwinkle-300">
                 pawtrackr.live/{business.slug}
               </code>
-              ) and 4-Step Atomic POS Checkout.
+              ). This is not a live payment or production catalog.
             </p>
           </div>
 
@@ -159,11 +232,7 @@ export default function SalonSettingsCatalogBuilderPage() {
                 type="button"
                 onClick={() => {
                   setActiveBusinessId(b.id);
-                  const cfg = BUSINESS_CONFIGS[b.id];
-                  setTaxRate(String(cfg.tax_rate));
-                  setLoyaltyMultiplier(String(cfg.loyalty_points_per_dollar));
-                  setPackages(cfg.custom_settings.packages);
-                  setAddons(cfg.custom_settings.addons);
+                  showConfig(loadUniversalStore().configs[b.id] ?? BUSINESS_CONFIGS[b.id]);
                 }}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
                   b.id === business.id
@@ -178,7 +247,7 @@ export default function SalonSettingsCatalogBuilderPage() {
         </div>
 
         {/* Tax Rate, Loyalty & Stripe Connect Hardware Strip */}
-        <div className="mt-6 grid grid-cols-1 gap-4 border-t border-white/[0.08] pt-5 sm:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-4 border-t border-white/[0.08] pt-5 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900/80 p-4">
             <label className="block text-xs font-semibold text-zinc-300">
               Municipal Sales Tax Rate (%)
@@ -209,8 +278,14 @@ export default function SalonSettingsCatalogBuilderPage() {
               className="mt-1.5 w-full rounded-xl border border-white/[0.12] bg-obsidian-800 px-3 py-2 font-mono text-sm text-white"
             />
             <p className="mt-1 text-[11px] text-periwinkle-300">
-              Auto-credited on atomic checkout completion
+              Preview rule; no paid checkout is processed here
             </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900/80 p-4">
+            <label htmlFor="weekly-checkout-target" className="block text-xs font-semibold text-zinc-300">Weekly demo checkout target ($)</label>
+            <input id="weekly-checkout-target" type="number" min="0.01" max="1000000" step="0.01" value={weeklyTarget} onChange={(event) => setWeeklyTarget(event.target.value)} placeholder="Optional" className="mt-1.5 w-full rounded-xl border border-white/[0.12] bg-obsidian-800 px-3 py-2 font-mono text-sm text-white" />
+            <p className="mt-1 text-[11px] text-zinc-400">Optional UTC Mon–Sun pacing target for recorded demo checkouts.</p>
           </div>
 
           <div className="rounded-2xl border border-emerald-500/35 bg-emerald-500/10 p-4">
@@ -220,15 +295,15 @@ export default function SalonSettingsCatalogBuilderPage() {
                 Stripe Connect Express
               </span>
               <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px]">
-                CONNECTED
+                PREVIEW ONLY
               </span>
             </div>
             <p className="mt-1.5 font-mono text-xs text-white">
-              acct_1Q8xPawtrackrLive
+              No Stripe account connected
             </p>
             <p className="mt-1 flex items-center gap-1 text-[11px] text-zinc-300">
               <Smartphone className="h-3.5 w-3.5 text-periwinkle-300" />
-              Stripe Reader M2 & Tap-to-Pay Paired
+              Reader pairing requires a production integration
             </p>
           </div>
         </div>
@@ -243,7 +318,7 @@ export default function SalonSettingsCatalogBuilderPage() {
               Primary Grooming Packages ({packages.length})
             </h2>
             <p className="text-xs text-zinc-400">
-              Stored in <code className="text-periwinkle-300">business_configs.custom_settings.packages</code>
+              Saved in the local demo store for the booking preview
             </p>
           </div>
 

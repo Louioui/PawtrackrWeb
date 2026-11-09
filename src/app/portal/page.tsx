@@ -3,9 +3,12 @@ import Link from 'next/link';
 import { ArrowRight, Globe, MapPin, ShieldCheck, Star } from 'lucide-react';
 import { BUSINESSES, BUSINESS_CONFIGS } from '@/lib/mock-tenant-data';
 
+export const metadata = { robots: { index: false, follow: false } };
+
 export default function PortalDirectoryPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-obsidian-800/70 px-4 py-3 text-sm"><span className="text-zinc-300">These salons are illustrative demo profiles.</span><Link href="/portal/live" className="font-semibold text-periwinkle-300 hover:text-white">View live salon directory →</Link></div>
       <div className="text-center">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-periwinkle-500/35 bg-periwinkle-500/10 px-3.5 py-1 text-xs font-semibold text-periwinkle-300">
           <Globe className="h-3.5 w-3.5" />

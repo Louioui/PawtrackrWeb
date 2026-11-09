@@ -1,6 +1,6 @@
 'use client';
 
-import React, { use, useMemo, useState } from 'react';
+import React, { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Award,
@@ -24,6 +24,10 @@ import {
 import { formatCurrency } from '@/lib/pos-math';
 import { BehaviorAuraBadge } from '@/components/BehaviorAuraBadge';
 import { AnatomicalCutCard } from '@/components/AnatomicalCutCard';
+import { WeightHistoryChart } from '@/components/WeightHistoryChart';
+import { prepareWeightHistory } from '@/lib/weight-history';
+import { loadUniversalStore, subscribeUniversalStore } from '@/lib/realtime-store';
+import type { Client, GroomingPhotoPair, Pet, Visit } from '@/types/database';
 
 const REWARD_TIERS = [
   {
@@ -53,28 +57,48 @@ export default function ClientRetentionPortalPage({
 }) {
   const resolvedParams = use(params);
   const clientId = resolvedParams.id || 'cl-101';
+  const [clients, setClients] = useState<Client[]>(CLIENTS);
+  const [pets, setPets] = useState<Pet[]>(PETS);
+  const [visits, setVisits] = useState<Visit[]>(INITIAL_VISITS);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const applyStore = (store: ReturnType<typeof loadUniversalStore>) => {
+      setClients(store.clients);
+      setPets(store.pets);
+      setVisits(store.visits);
+      setHydrated(true);
+    };
+    applyStore(loadUniversalStore());
+    return subscribeUniversalStore(applyStore);
+  }, []);
 
   const client = useMemo(
-    () => CLIENTS.find((c) => c.id === clientId) ?? CLIENTS[0],
-    [clientId]
+    () => clients.find((c) => c.id === clientId),
+    [clients, clientId]
   );
 
   const business = useMemo(
     () =>
-      BUSINESSES.find((b) => b.id === client.business_id) ?? BUSINESSES[0],
-    [client.business_id]
+      BUSINESSES.find((b) => b.id === client?.business_id),
+    [client?.business_id]
   );
 
   const clientPets = useMemo(
-    () => PETS.filter((p) => p.client_id === client.id),
-    [client.id]
+    () => pets.filter((p) => p.client_id === client?.id && p.business_id === client?.business_id),
+    [pets, client?.id, client?.business_id]
   );
 
-  const primaryPet = clientPets[0] ?? PETS[0];
+  const primaryPet = clientPets[0];
+  const weightHistory = useMemo(
+    () => prepareWeightHistory(primaryPet?.weight_history ?? []),
+    [primaryPet?.weight_history]
+  );
+  const latestWeight = weightHistory.at(-1);
 
   const clientVisits = useMemo(
-    () => INITIAL_VISITS.filter((v) => v.client_id === client.id),
-    [client.id]
+    () => visits.filter((v) => v.client_id === client?.id && v.business_id === client?.business_id),
+    [visits, client?.id, client?.business_id]
   );
 
   const [redeemedIds, setRedeemedIds] = useState<string[]>([]);
@@ -86,11 +110,11 @@ export default function ClientRetentionPortalPage({
     Record<string, number>
   >({});
   const [socialStoryItem, setSocialStoryItem] = useState<
-    (typeof PETS)[0]['photo_gallery'][0] | null
+    GroomingPhotoPair | null
   >(null);
   const [expressTipPct, setExpressTipPct] = useState<number>(22);
   const [autoLockNext5Weeks, setAutoLockNext5Weeks] = useState<boolean>(true);
-  const [expressPaySettled, setExpressPaySettled] = useState<boolean>(false);
+  const [expressPreviewComplete, setExpressPreviewComplete] = useState<boolean>(false);
 
   const expressBaseDollars = 143.0;
   const expressTaxDollars = Number((expressBaseDollars * 0.0863).toFixed(2));
@@ -103,9 +127,9 @@ export default function ClientRetentionPortalPage({
 
   const livePointsBalance = Math.max(
     0,
-    client.loyalty_points -
+    (client?.loyalty_points ?? 0) -
       bonusPointsSpent +
-      (expressPaySettled ? 286 + (autoLockNext5Weeks ? 100 : 0) : 0)
+      (expressPreviewComplete ? 286 + (autoLockNext5Weeks ? 100 : 0) : 0)
   );
   const progressTo1000 = Math.min(100, Math.round((livePointsBalance / 1000) * 100));
 
@@ -115,20 +139,24 @@ export default function ClientRetentionPortalPage({
     setBonusPointsSpent((prev) => prev + cost);
   };
 
+  if (!client || !business || !primaryPet) {
+    return <div className="mx-auto max-w-6xl px-4 py-16 text-center text-sm text-zinc-300">{hydrated ? 'This demo client or pet profile is unavailable.' : 'Loading demo profile…'}</div>;
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 pb-24 pt-6 sm:px-6 lg:px-8">
       {/* Top Client Switcher Bar for Demo Inspection */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.08] bg-obsidian-800/80 px-4 py-2.5 text-xs">
         <div className="flex items-center gap-2 text-zinc-300">
           <Heart className="h-4 w-4 text-emerald-400" />
-          <span>Client Retention Portal • Isolated to</span>
+          <span>Client Retention Portal • Demo salon</span>
           <span className="font-semibold text-white">{business.name}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-zinc-400">Switch Pet Parent Profile:</span>
-          {CLIENTS.slice(0, 4).map((c) => {
-            const pet = PETS.find((p) => p.client_id === c.id);
+          {clients.slice(0, 4).map((c) => {
+            const pet = pets.find((p) => p.client_id === c.id && p.business_id === c.business_id);
             const active = c.id === client.id;
             return (
               <Link
@@ -170,11 +198,10 @@ export default function ClientRetentionPortalPage({
                 {primaryPet.name}’s Digital Grooming Passport
               </h1>
               <p className="mt-0.5 text-xs text-zinc-300">
-                {primaryPet.breed} • {primaryPet.age_years} Years Old • Current
-                Weight:{' '}
-                <strong className="text-periwinkle-300">
-                  {primaryPet.weight_lbs} lbs
-                </strong>{' '}
+                {primaryPet.breed} • {primaryPet.age_years} Years Old • Latest recorded weight:{' '}
+                {latestWeight ? <strong className="text-periwinkle-300">
+                  {latestWeight.weight_lbs.toFixed(1)} lbs ({latestWeight.date})
+                </strong> : <strong className="text-zinc-400">No valid entry</strong>}{' '}
                 • Coat: {primaryPet.coat_type}
               </p>
 
@@ -204,24 +231,24 @@ export default function ClientRetentionPortalPage({
         </div>
       </div>
 
-      {/* CURBSIDE EXPRESS SELF-CHECKOUT & 1-TAP 5-WEEK AUTO-REBOOK PASS */}
+      {/* CURBSIDE CHECKOUT PREVIEW */}
       <section className="mt-6 rounded-3xl border border-emerald-500/45 bg-obsidian-800/95 p-6 shadow-emerald-glow">
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-emerald-500 px-3 py-0.5 font-mono text-[10px] font-bold uppercase text-obsidian-950">
-                1-TAP CURBSIDE EXPRESS PAY & AUTO-REBOOK
+                CURBSIDE CHECKOUT PREVIEW
               </span>
               <span className="text-xs text-emerald-300">
-                Skip the front-desk line on any Android or iPhone
+                Demo interaction · no payment or booking is made
               </span>
             </div>
             <h2 className="mt-2 text-xl font-extrabold text-white">
-              {expressPaySettled
-                ? `✓ ${primaryPet.name}’s Visit Settled (${formatCurrency(
+              {expressPreviewComplete
+                ? `Preview complete: ${primaryPet.name}’s sample total (${formatCurrency(
                     expressTotalDollars
-                  )}) & Next 5-Week Slot Locked!`
-                : `Ready for Pickup: Settle ${primaryPet.name}’s Visit & Lock Your 5-Week Slot`}
+                  )}) and five-week rebooking option`
+                : `Explore a sample checkout for ${primaryPet.name}`}
             </h2>
             <p className="mt-1 text-xs text-zinc-300">
               Service: Signature Teddy Bear & Hand-Scissor ($143.00) + Tax ($
@@ -230,7 +257,7 @@ export default function ClientRetentionPortalPage({
             </p>
           </div>
 
-          {!expressPaySettled ? (
+          {!expressPreviewComplete ? (
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="flex items-center gap-1.5 rounded-2xl border border-white/[0.1] bg-obsidian-900 p-1.5 text-xs">
                 {[18, 22, 25].map((pct) => (
@@ -259,25 +286,24 @@ export default function ClientRetentionPortalPage({
                 }`}
               >
                 <div className="font-bold">
-                  {autoLockNext5Weeks ? '✓ ' : '+ '}Auto-Rebook 5-Wk Slot
+                  {autoLockNext5Weeks ? '✓ ' : '+ '}Preview 5-Wk Rebook
                 </div>
                 <div className="text-[10px] text-emerald-300">
-                  Dec 14 @ 10:30 AM (+100 Bonus Pts)
+                  Sample option (+100 demo points)
                 </div>
               </button>
 
               <button
                 type="button"
-                onClick={() => setExpressPaySettled(true)}
+                onClick={() => setExpressPreviewComplete(true)}
                 className="rounded-2xl bg-emerald-500 px-5 py-3 text-xs font-extrabold text-obsidian-950 shadow-emerald-glow transition hover:bg-emerald-400"
               >
-                1-Tap Pay {formatCurrency(expressTotalDollars)} →
+                Preview {formatCurrency(expressTotalDollars)} Checkout →
               </button>
             </div>
           ) : (
             <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-3 text-xs font-bold text-emerald-300">
-              Receipt #EXP-9942 • +{286 + (autoLockNext5Weeks ? 100 : 0)} Loyalty
-              Pts Credited!
+              Sample checkout preview • +{286 + (autoLockNext5Weeks ? 100 : 0)} demo loyalty points shown. No charge, receipt, or booking was created.
             </div>
           )}
         </div>
@@ -289,14 +315,13 @@ export default function ClientRetentionPortalPage({
           <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-periwinkle-400">
               <Award className="h-4 w-4" />
-              <span>Pawtrackr Automatic Loyalty Engine</span>
+              <span>Demo Loyalty Rewards</span>
             </div>
             <h2 className="mt-1 text-2xl font-bold text-white">
-              {livePointsBalance} Available Loyalty Points
+              {livePointsBalance} Demo Loyalty Points
             </h2>
             <p className="text-xs text-zinc-400">
-              Points update automatically the instant your groomer settles your
-              4-step atomic POS checkout.
+              Demo points include any sample checkout preview above. Real rewards require a confirmed transaction.
             </p>
           </div>
 
@@ -350,7 +375,7 @@ export default function ClientRetentionPortalPage({
                   {isRedeemed ? (
                     <div className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500/25 py-2 text-xs font-bold text-emerald-300">
                       <CheckCircle2 className="h-4 w-4" />
-                      Applied to Next Visit!
+                      Preview applied locally
                     </div>
                   ) : (
                     <button
@@ -366,7 +391,7 @@ export default function ClientRetentionPortalPage({
                       }`}
                     >
                       {canUnlock
-                        ? `Redeem (${tier.pointsRequired} pts)`
+                        ? `Preview reward (${tier.pointsRequired} pts)`
                         : `Need ${
                             tier.pointsRequired - livePointsBalance
                           } more pts`}
@@ -397,10 +422,8 @@ export default function ClientRetentionPortalPage({
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {(primaryPet.photo_gallery.length > 0
-            ? primaryPet.photo_gallery
-            : PETS[0].photo_gallery
-          ).map((item) => {
+          {primaryPet.photo_gallery.length === 0 ? <p className="text-sm text-zinc-400">No before-and-after photos have been added for this pet.</p> : null}
+          {primaryPet.photo_gallery.map((item) => {
             const mode = photoCompareMode[item.id] ?? 'slider';
             const sliderPct = sliderPositionMap[item.id] ?? 50;
             return (
@@ -493,6 +516,7 @@ export default function ClientRetentionPortalPage({
                         </span>
                         <input
                           type="range"
+                          aria-label={`Before and after photo comparison for ${primaryPet.name} on ${item.visit_date}`}
                           min={5}
                           max={95}
                           value={sliderPct}
@@ -642,15 +666,15 @@ export default function ClientRetentionPortalPage({
             <Scale className="h-4 w-4" />
             <span>Longitudinal Weight & Coat Log</span>
           </div>
-          <h3 className="mt-1 text-xl font-bold text-white">
-            Weight Stability Tracker
-          </h3>
+          <h3 className="mt-1 text-xl font-bold text-white">Weight history</h3>
           <p className="mt-1 text-xs text-zinc-400">
-            Logged on our calibrated digital scale before every hydro-bath.
+            Recorded weights from {primaryPet.name}’s demo profile, in pounds.
           </p>
 
+          <WeightHistoryChart petName={primaryPet.name} entries={primaryPet.weight_history} />
+
           <div className="mt-4 space-y-2.5">
-            {primaryPet.weight_history.map((entry, idx) => (
+            {weightHistory.map((entry, idx) => (
               <div
                 key={entry.date}
                 className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-obsidian-900/80 px-3.5 py-2.5 text-xs"
@@ -660,7 +684,7 @@ export default function ClientRetentionPortalPage({
                   <span className="font-mono font-bold text-white">
                     {entry.weight_lbs.toFixed(1)} lbs
                   </span>
-                  {idx === primaryPet.weight_history.length - 1 && (
+                  {idx === weightHistory.length - 1 && (
                     <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
                       Latest
                     </span>

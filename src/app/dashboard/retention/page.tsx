@@ -3,14 +3,11 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle,
   ArrowLeft,
-  Calendar,
   CheckCircle2,
   Heart,
   MessageSquare,
   Send,
-  ShieldAlert,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
@@ -29,10 +26,9 @@ interface CoatRecallCandidate {
   recommendedCadenceWeeks: number;
   mattingRiskLevel: 'critical' | 'elevated' | 'on_track';
   rabiesExpiresDate: string;
-  rabiesStatus: 'valid' | 'expiring_soon';
   lastPackagePrice: number;
   behaviorTags: BehaviorTag[];
-  recallSent: boolean;
+  recallPreviewed: boolean;
 }
 
 const INITIAL_RECALL_LIST: CoatRecallCandidate[] = [
@@ -47,10 +43,9 @@ const INITIAL_RECALL_LIST: CoatRecallCandidate[] = [
     recommendedCadenceWeeks: 5,
     mattingRiskLevel: 'critical',
     rabiesExpiresDate: '2027-08-14',
-    rabiesStatus: 'valid',
     lastPackagePrice: 160.0,
     behaviorTags: ['matted'],
-    recallSent: false,
+    recallPreviewed: false,
   },
   {
     id: 'rec-2',
@@ -63,10 +58,9 @@ const INITIAL_RECALL_LIST: CoatRecallCandidate[] = [
     recommendedCadenceWeeks: 5,
     mattingRiskLevel: 'elevated',
     rabiesExpiresDate: '2026-11-28',
-    rabiesStatus: 'expiring_soon',
     lastPackagePrice: 199.0,
     behaviorTags: ['cage_reactive', 'extra_care'],
-    recallSent: false,
+    recallPreviewed: false,
   },
   {
     id: 'rec-3',
@@ -79,10 +73,9 @@ const INITIAL_RECALL_LIST: CoatRecallCandidate[] = [
     recommendedCadenceWeeks: 4,
     mattingRiskLevel: 'elevated',
     rabiesExpiresDate: '2027-04-02',
-    rabiesStatus: 'valid',
     lastPackagePrice: 169.0,
     behaviorTags: ['senior', 'heart_murmur'],
-    recallSent: false,
+    recallPreviewed: false,
   },
   {
     id: 'rec-4',
@@ -95,10 +88,9 @@ const INITIAL_RECALL_LIST: CoatRecallCandidate[] = [
     recommendedCadenceWeeks: 5,
     mattingRiskLevel: 'on_track',
     rabiesExpiresDate: '2027-09-19',
-    rabiesStatus: 'valid',
     lastPackagePrice: 198.0,
     behaviorTags: ['matted', 'extra_care'],
-    recallSent: true,
+    recallPreviewed: true,
   },
 ];
 
@@ -107,42 +99,49 @@ export default function RetentionAndVaccineGuardPage() {
     useState<CoatRecallCandidate[]>(INITIAL_RECALL_LIST);
   const [campaignBanner, setCampaignBanner] = useState<string | null>(null);
   const [enrolledClubIds, setEnrolledClubIds] = useState<string[]>(['rec-4']);
-  const [activeClubMembersCount, setActiveClubMembersCount] =
+  const [scenarioMembersCount, setScenarioMembersCount] =
     useState<number>(34);
-  const [monthlyRecurringRevenue, setMonthlyRecurringRevenue] =
+  const [scenarioMonthlyListValue, setScenarioMonthlyListValue] =
     useState<number>(4890);
 
-  const recoverableRevenue = candidates
-    .filter((c) => !c.recallSent)
+  const overdueCandidates = candidates.filter(
+    (candidate) => candidate.weeksSinceLastGroom > candidate.recommendedCadenceWeeks
+  );
+  const unpreviewedOverdueCandidates = overdueCandidates.filter(
+    (candidate) => !candidate.recallPreviewed
+  );
+  const candidateListValue = overdueCandidates
     .reduce((acc, c) => acc + c.lastPackagePrice, 0);
 
   const handleEnrollInMembership = (item: CoatRecallCandidate, monthlyRate = 139) => {
     if (enrolledClubIds.includes(item.id)) return;
     setEnrolledClubIds((prev) => [...prev, item.id]);
-    setActiveClubMembersCount((n) => n + 1);
-    setMonthlyRecurringRevenue((m) => m + monthlyRate);
+    setScenarioMembersCount((n) => n + 1);
+    setScenarioMonthlyListValue((m) => m + monthlyRate);
     setCampaignBanner(
-      `VIP Recurring Membership Activated: ${item.clientName} (${item.petName}) enrolled in the 4-Week Coat Sanctuary Auto-Pay Club ($${monthlyRate}/mo). Salon MRR increased to ${formatCurrency(
-        monthlyRecurringRevenue + monthlyRate
-      )}/mo!`
+      `Membership scenario updated for ${item.petName}: +${formatCurrency(monthlyRate)}/mo in sample list value. No subscription was created or charged.`
     );
     setTimeout(() => setCampaignBanner(null), 6000);
   };
 
-  const handleSendSingleRecall = (item: CoatRecallCandidate) => {
+  const handlePreviewSingleRecall = (item: CoatRecallCandidate) => {
     setCandidates((prev) =>
-      prev.map((c) => (c.id === item.id ? { ...c, recallSent: true } : c))
+      prev.map((c) => (c.id === item.id ? { ...c, recallPreviewed: true } : c))
     );
     setCampaignBanner(
-      `Coat-Matting Prevention SMS sent to ${item.clientName} (${item.phone}): "Hi ${item.clientName.split(' ')[0]}! ${item.petName} is at ${item.weeksSinceLastGroom} weeks since his last groom. Book this week to prevent ear/collar tangles & claim +100 Bonus Loyalty Points: pawtrackr.live/portal/bespoke-grooming"`
+      `Recall preview prepared for ${item.clientName} and ${item.petName}. No SMS was sent and no loyalty points were awarded.`
     );
     setTimeout(() => setCampaignBanner(null), 6000);
   };
 
-  const handleBatchLaunchCampaign = () => {
-    setCandidates((prev) => prev.map((c) => ({ ...c, recallSent: true })));
+  const handlePreviewBatchCampaign = () => {
+    setCandidates((prev) => prev.map((candidate) =>
+      candidate.weeksSinceLastGroom > candidate.recommendedCadenceWeeks
+        ? { ...candidate, recallPreviewed: true }
+        : candidate
+    ));
     setCampaignBanner(
-      `Batch Recall Dispatched to all overdue Doodle/Poodle parents! Projected recovered salon revenue: ${formatCurrency(recoverableRevenue)}.`
+      `Recall preview prepared for ${unpreviewedOverdueCandidates.length} overdue sample pets. No SMS was sent or booking created.`
     );
     setTimeout(() => setCampaignBanner(null), 6000);
   };
@@ -168,11 +167,12 @@ export default function RetentionAndVaccineGuardPage() {
           </Link>
           <button
             type="button"
-            onClick={handleBatchLaunchCampaign}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-obsidian-950 shadow-emerald-glow hover:bg-emerald-400"
+            onClick={handlePreviewBatchCampaign}
+            disabled={unpreviewedOverdueCandidates.length === 0}
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-obsidian-950 shadow-emerald-glow hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Send className="h-3.5 w-3.5" />
-            Send All Overdue Coat Recalls (+100 Pts Offer)
+            Preview overdue recall batch
           </button>
         </div>
       </div>
@@ -199,66 +199,64 @@ export default function RetentionAndVaccineGuardPage() {
           <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400">
               <Heart className="h-4 w-4" />
-              <span>Automated Coat Matting Prevention & Rabies Guard</span>
+              <span>Illustrative retention scenario · no messages or billing</span>
             </div>
             <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold text-white">
-              Client Retention & Coat Cadence Recall Engine
+              Coat Cadence & Retention Preview
             </h1>
             <p className="mt-1 text-xs text-zinc-400">
-              Automatically identifies high-density curly/fleece coats exceeding
-              their 5-week window—preventing painful pelting while filling open
-              calendar slots.
+              Explore sample coat-care follow-ups and membership offers. The
+              dates, prices, and candidate list below are illustrative.
             </p>
           </div>
 
           <div className="rounded-2xl border border-emerald-500/35 bg-emerald-500/10 p-4 text-right">
             <div className="text-[11px] uppercase tracking-wider text-emerald-300">
-              Recoverable Recall Revenue
+              Sample prior package value
             </div>
             <div className="mt-0.5 font-mono text-2xl font-extrabold text-white">
-              {formatCurrency(recoverableRevenue)}
+              {formatCurrency(candidateListValue)}
             </div>
             <div className="text-[11px] text-zinc-300">
-              From {candidates.filter((c) => !c.recallSent).length} overdue VIP
-              pets
+              Across {overdueCandidates.length} overdue sample pets · not expected revenue
             </div>
           </div>
         </div>
       </div>
 
-      {/* VIP RECURRING GROOMING MEMBERSHIPS & AUTO-PAY MRR ENGINE */}
+      {/* ILLUSTRATIVE MEMBERSHIP SCENARIO */}
       <div className="mt-6 glass-card border-periwinkle-500/35 p-6">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
           <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-periwinkle-400">
               <Sparkles className="h-4 w-4" />
-              <span>Predictable Monthly Recurring Salon Revenue (MRR)</span>
+              <span>Illustrative membership pricing scenario</span>
             </div>
             <h2 className="mt-1 text-xl font-extrabold text-white">
-              VIP Recurring Grooming Memberships & Auto-Pay Subscriptions
+              Grooming Membership Offer Preview
             </h2>
             <p className="mt-1 text-xs text-zinc-400">
-              Locks curly-coated breeds into automatic 4-week recurring calendar
-              slots billed on the 1st of every month via Stripe Billing.
+              Sample monthly list prices for recurring grooming plans. No
+              subscription, calendar slot, or Stripe charge is created here.
             </p>
           </div>
 
           <div className="flex items-center gap-4 rounded-2xl border border-emerald-500/35 bg-obsidian-900/90 px-5 py-3">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                Active Club Members
+                Sample Club Members
               </div>
               <div className="font-mono text-2xl font-extrabold text-white">
-                {activeClubMembersCount} Dogs
+                {scenarioMembersCount} Dogs
               </div>
             </div>
             <div className="h-8 w-px bg-white/[0.1]" />
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-                Guaranteed Salon MRR
+                Sample Monthly List Value
               </div>
               <div className="font-mono text-2xl font-extrabold text-emerald-400">
-                {formatCurrency(monthlyRecurringRevenue)}/mo
+                {formatCurrency(scenarioMonthlyListValue)}/mo
               </div>
             </div>
           </div>
@@ -277,7 +275,7 @@ export default function RetentionAndVaccineGuardPage() {
               title: 'Bi-Weekly Hydro-Bath & Brush Pass',
               price: '$189/mo',
               perks:
-                'Full Scissor Groom + Mid-Month Ozone Hydro-Bath & Line Brush (100% Mat-Free Guarantee)',
+                'Full Scissor Groom + Mid-Month Ozone Hydro-Bath & Line Brush',
               badge: 'HIGHEST RETENTION',
             },
             {
@@ -336,19 +334,15 @@ export default function RetentionAndVaccineGuardPage() {
                           : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                       }`}
                     >
-                      {item.weeksSinceLastGroom} Wks Since Groom (Target:{' '}
+                      Sample: {item.weeksSinceLastGroom} Wks Since Groom (Target:{' '}
                       {item.recommendedCadenceWeeks} Wks)
                     </span>
 
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                        item.rabiesStatus === 'expiring_soon'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          : 'bg-emerald-500/15 text-emerald-300'
-                      }`}
+                      className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-zinc-300"
                     >
                       <ShieldCheck className="h-3 w-3" />
-                      Rabies Exp: {item.rabiesExpiresDate}
+                      Sample rabies date: {item.rabiesExpiresDate}
                     </span>
                   </div>
 
@@ -379,7 +373,7 @@ export default function RetentionAndVaccineGuardPage() {
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.07] pt-3 lg:flex-col lg:items-end lg:border-t-0 lg:pt-0">
                   <div className="text-left lg:text-right">
                     <div className="text-xs text-zinc-400">
-                      Typical Visit Value
+                      Sample prior package price
                     </div>
                     <div className="font-mono text-lg font-extrabold text-white">
                       {formatCurrency(item.lastPackagePrice)}
@@ -390,6 +384,7 @@ export default function RetentionAndVaccineGuardPage() {
                     <button
                       type="button"
                       onClick={() => handleEnrollInMembership(item, 139)}
+                      disabled={enrolledClubIds.includes(item.id)}
                       className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-xs font-bold transition ${
                         enrolledClubIds.includes(item.id)
                           ? 'border border-periwinkle-500/40 bg-periwinkle-500/15 text-periwinkle-300'
@@ -398,23 +393,24 @@ export default function RetentionAndVaccineGuardPage() {
                     >
                       <Sparkles className="h-3.5 w-3.5" />
                       {enrolledClubIds.includes(item.id)
-                        ? 'VIP Auto-Pay Member ($139/mo) ✓'
-                        : '+ Enroll in $139/mo Club'}
+                        ? 'Membership preview selected ✓'
+                        : 'Preview $139/mo membership'}
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => handleSendSingleRecall(item)}
+                      onClick={() => handlePreviewSingleRecall(item)}
+                      disabled={item.recallPreviewed}
                       className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
-                        item.recallSent
+                        item.recallPreviewed
                           ? 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
                           : 'bg-periwinkle-500 text-obsidian-950 shadow-periwinkle-glow hover:bg-periwinkle-400'
                       }`}
                     >
                       <MessageSquare className="h-3.5 w-3.5" />
-                      {item.recallSent
-                        ? 'Recall SMS Dispatched ✓'
-                        : 'Text 6-Week Recall (+100 Pts)'}
+                      {item.recallPreviewed
+                        ? 'Recall preview prepared ✓'
+                        : 'Preview recall message'}
                     </button>
                   </div>
                 </div>

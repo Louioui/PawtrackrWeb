@@ -1,10 +1,9 @@
 // ============================================================================
-// PAWTRACKR WEB — OFFLINE-FIRST SERVICE WORKER FOR SALONS & MOBILE VANS
-// Ensures Android, Windows, iOS, macOS, and ChromeOS devices retain access to
-// the Command Center, Pet Safety Auras, and POS Queue in low-signal driveways.
+// PAWTRACKR WEB — DEMO APP SHELL CACHE
+// API and client-specific responses must never enter this cache.
 // ============================================================================
 
-const CACHE_NAME = 'pawtrackr-offline-v1';
+const CACHE_NAME = 'pawtrackr-offline-v3';
 const PRECACHE_ROUTES = [
   '/',
   '/dashboard',
@@ -14,17 +13,34 @@ const PRECACHE_ROUTES = [
   '/dashboard/retention',
   '/dashboard/import',
   '/dashboard/analytics',
-  '/login',
   '/manifest.json',
 ];
 
+async function precacheDemoShell() {
+  const cache = await caches.open(CACHE_NAME);
+  const assets = new Set();
+  await Promise.all(PRECACHE_ROUTES.map(async (route) => {
+    const response = await fetch(route, { cache: 'no-store' });
+    if (!response.ok || /no-store|private/i.test(response.headers.get('Cache-Control') || '')) {
+      throw new Error(`Demo shell route cannot be cached: ${route}`);
+    }
+    await cache.put(route, response.clone());
+    if (response.headers.get('Content-Type')?.includes('text/html')) {
+      const html = await response.text();
+      for (const match of html.matchAll(/(?:src|href)="(\/_next\/static\/[^\"]+)"/g)) {
+        assets.add(match[1].replaceAll('&amp;', '&'));
+      }
+    }
+  }));
+  await Promise.all([...assets].map(async (asset) => {
+    const response = await fetch(asset);
+    if (!response.ok) throw new Error(`Demo shell asset cannot be cached: ${asset}`);
+    await cache.put(asset, response);
+  }));
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE_ROUTES))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil(precacheDemoShell().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -34,7 +50,7 @@ self.addEventListener('activate', (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key !== CACHE_NAME)
+            .filter((key) => key.startsWith('pawtrackr-offline-') && key !== CACHE_NAME)
             .map((key) => caches.delete(key))
         )
       )
@@ -43,17 +59,28 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
+
+  const appShellPage = request.mode === 'navigate' && PRECACHE_ROUTES.includes(url.pathname);
+  const staticAsset = url.pathname.startsWith('/_next/static/') || url.pathname === '/manifest.json';
+  if (!appShellPage && !staticAsset) return;
 
   event.respondWith(
-    fetch(event.request)
+    fetch(request)
       .then((networkResponse) => {
-        const clone = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, clone);
-        });
+        if (staticAsset && networkResponse.ok && networkResponse.type === 'basic' &&
+            !/no-store|private/i.test(networkResponse.headers.get('Cache-Control') || '')) {
+          const clone = networkResponse.clone();
+          event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)));
+        }
         return networkResponse;
       })
-      .catch(() => caches.match(event.request))
+      .catch(async () => {
+        const cache = await caches.open(CACHE_NAME);
+        return (appShellPage ? await cache.match(url.pathname) : await cache.match(request)) || Response.error();
+      })
   );
 });

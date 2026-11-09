@@ -1,29 +1,31 @@
 import { MetadataRoute } from 'next';
-import { BUSINESSES } from '@/lib/mock-tenant-data';
+import { getPublicBookingClient, parsePublicSalon } from '@/lib/public-booking';
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export const dynamic = 'force-dynamic';
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://pawtrackr.live';
-
-  const salonPortalUrls = BUSINESSES.map((b) => ({
-    url: `${baseUrl}/portal/${b.slug}`,
-    lastModified: new Date(),
-    changeFrequency: 'daily' as const,
-    priority: 0.9,
-  }));
+  const client = getPublicBookingClient();
+  const response = client
+    ? await client.from('booking_business_directory').select('id,name,slug,city_state')
+    : null;
+  const salons = (response?.data ?? []).map(parsePublicSalon).filter((salon) => salon !== null);
 
   return [
     {
       url: baseUrl,
-      lastModified: new Date(),
-      changeFrequency: 'daily',
+      changeFrequency: 'weekly',
       priority: 1.0,
     },
     {
-      url: `${baseUrl}/portal`,
-      lastModified: new Date(),
+      url: `${baseUrl}/portal/live`,
       changeFrequency: 'daily',
-      priority: 0.95,
+      priority: 0.8,
     },
-    ...salonPortalUrls,
+    ...salons.map((salon) => ({
+      url: `${baseUrl}/portal/live/${salon.slug}`,
+      changeFrequency: 'daily' as const,
+      priority: 0.7,
+    })),
   ];
 }

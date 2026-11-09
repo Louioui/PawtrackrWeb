@@ -2,7 +2,7 @@
 -- PAWTRACKR WEB: 50-POINT ENTERPRISE ROADMAP SCHEMA EXPANSION
 -- Migration: 0003_enterprise_50_roadmap.sql
 -- Covers:
---   - Schema Migration Version Control Ledger (#2)
+--   - Schema Migration Version Control Ledger (#2), recorded by Supabase
 --   - Multi-Location Franchise & White-Label Custom Domains (#25, #36)
 --   - Multi-Currency & Retail Tax Split Support (#4, #26, #42)
 --   - Retail Product Inventory & Reorder Alerts (#30)
@@ -14,20 +14,8 @@
 --   - High-Concurrency Composite Indexes (#33)
 -- ============================================================================
 
--- 1. Schema Migration Version Control Table (#2)
-CREATE TABLE IF NOT EXISTS public.schema_migrations (
-    version TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    checksum TEXT NOT NULL,
-    applied_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-INSERT INTO public.schema_migrations (version, name, checksum)
-VALUES
-    ('0001', '0001_multi_tenant_schema.sql', 'sha256:9f84a1c0'),
-    ('0002', '0002_waivers_storage_and_payroll.sql', 'sha256:4b21e8d3'),
-    ('0003', '0003_enterprise_50_roadmap.sql', 'sha256:7e92c5a1')
-ON CONFLICT (version) DO NOTHING;
+-- 1. Supabase tracks applied migrations in its own migration history.
+-- No application-owned checksum ledger is populated with placeholder values.
 
 -- 2. Multi-Location Franchise & White-Label Custom Domain Columns (#25, #36)
 ALTER TABLE public.businesses

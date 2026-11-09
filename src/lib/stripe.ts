@@ -43,7 +43,7 @@ export const SAAS_PLANS = {
     features: [
       'Unlimited Groomers, Bathers & Front-Desk Staff',
       'Unified Multi-Table & Walk-In Command Calendar',
-      'Strict Multi-Tenant RLS Data Isolation',
+      'Planned tenant access controls',
       'Automated Commission & Tip Split Ledgers',
       'Loyalty Points Engine & Automated SMS Retention',
       'End-of-Day Zero-Drift Drawer Reconciliation',

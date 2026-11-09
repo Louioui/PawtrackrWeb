@@ -20,6 +20,10 @@ import { CommandPalette } from './CommandPalette';
 
 export function TopNav() {
   const pathname = usePathname();
+  const isLiveAnalytics = pathname === '/dashboard/analytics/live';
+  const isLiveAppointments = pathname === '/dashboard/appointments/live';
+  const isLiveCatalog = pathname?.startsWith('/portal/live') ?? false;
+  const isSourceBacked = isLiveAnalytics || isLiveAppointments || isLiveCatalog;
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [offlineVanSim, setOfflineVanSim] = useState(false);
 
@@ -99,12 +103,12 @@ export function TopNav() {
                 <span className="text-base font-bold tracking-tight text-white">
                   Pawtrackr
                 </span>
-                <span className="rounded-md border border-periwinkle-500/30 bg-periwinkle-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-periwinkle-300">
+                <span className="hidden rounded-md border border-periwinkle-500/30 bg-periwinkle-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-periwinkle-300 sm:inline">
                   Universal Web OS
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400">
-                Android • Windows • iOS • macOS • RLS Isolated
+                {isLiveAnalytics ? 'Authenticated staff analytics' : isLiveAppointments ? 'Authenticated staff appointments' : isLiveCatalog ? 'Published salon catalog' : 'Pet grooming workspace • Demo preview'}
               </p>
             </div>
           </Link>
@@ -143,6 +147,7 @@ export function TopNav() {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              aria-label="Quick Jump search"
               onClick={() => setIsPaletteOpen(true)}
               className="inline-flex items-center gap-2 rounded-xl border border-white/[0.12] bg-obsidian-800 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:border-periwinkle-500/50 hover:text-white"
             >
@@ -153,9 +158,9 @@ export function TopNav() {
               </kbd>
             </button>
 
-            <button
+            {!isSourceBacked && <button
               type="button"
-              title="Toggle Offline-First Canyon / Driveway Mode Simulation"
+              title="Preview the offline status badge; this does not disconnect the browser"
               onClick={() => setOfflineVanSim((prev) => !prev)}
               className={`hidden lg:flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                 offlineVanSim
@@ -166,23 +171,24 @@ export function TopNav() {
               {offlineVanSim ? (
                 <>
                   <WifiOff className="h-3.5 w-3.5 text-amber-400" />
-                  <span>Offline Queue Active</span>
+                  <span>Offline badge preview</span>
                 </>
               ) : (
                 <>
                   <Wifi className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>RLS + Offline Ready</span>
+                  <span>Demo snapshot</span>
                 </>
               )}
-            </button>
+            </button>}
 
-            <Link
+            {!isSourceBacked && <Link
               href="/login"
+              aria-label="Station PIN"
               className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-obsidian-800 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:border-periwinkle-500/40 hover:text-white"
             >
               <KeyRound className="h-3.5 w-3.5 text-periwinkle-400" />
-              <span>Station PIN</span>
-            </Link>
+              <span className="hidden sm:inline">Station PIN</span>
+            </Link>}
           </div>
         </div>
 

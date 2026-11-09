@@ -32,6 +32,7 @@ import {
 } from '@/lib/mock-tenant-data';
 import {
   BehaviorTag,
+  BusinessConfig,
   Client,
   GroomingPhotoPair,
   Pet,
@@ -43,7 +44,7 @@ import {
   buildSalonSearchIndex,
   executeMultiTokenSearch,
 } from '@/lib/search-engine';
-import { formatCurrency, reconcileEndOfDayDrawer } from '@/lib/pos-math';
+import { formatCents, formatCurrency, reconcileEndOfDayDrawer } from '@/lib/pos-math';
 import { BehaviorAuraBadge } from '@/components/BehaviorAuraBadge';
 import { AtomicPOSModal } from '@/components/AtomicPOSModal';
 import { DigitalWaiverModal } from '@/components/DigitalWaiverModal';
@@ -99,6 +100,7 @@ export default function DashboardCommandCenter() {
   const [visits, setVisits] = useState<Visit[]>(INITIAL_VISITS);
   const [transactions, setTransactions] =
     useState<Transaction[]>(INITIAL_TRANSACTIONS);
+  const [configs, setConfigs] = useState<Record<string, BusinessConfig>>(BUSINESS_CONFIGS);
 
   useEffect(() => {
     const hydrated = loadUniversalStore();
@@ -106,12 +108,14 @@ export default function DashboardCommandCenter() {
     setPets(hydrated.pets);
     setVisits(hydrated.visits);
     setTransactions(hydrated.transactions);
+    setConfigs(hydrated.configs);
 
     return subscribeUniversalStore((updated) => {
       setClients(updated.clients);
       setPets(updated.pets);
       setVisits(updated.visits);
       setTransactions(updated.transactions);
+      setConfigs(updated.configs);
     });
   }, []);
 
@@ -180,8 +184,8 @@ export default function DashboardCommandCenter() {
     [activeBusinessId]
   );
   const activeConfig = useMemo(
-    () => BUSINESS_CONFIGS[activeBusiness.id],
-    [activeBusiness.id]
+    () => configs[activeBusiness.id] ?? BUSINESS_CONFIGS[activeBusiness.id],
+    [activeBusiness.id, configs]
   );
   const tenantStaff = useMemo(
     () => STAFF_MEMBERS.filter((s) => s.business_id === activeBusiness.id),
@@ -237,9 +241,9 @@ export default function DashboardCommandCenter() {
     return found ?? searchIndex[0] ?? null;
   }, [searchIndex, selectedPetId]);
 
-  // End-of-Day Atomic Drawer Reconciliation
+  // Arithmetic check of all recorded completed demo checkouts.
   const drawerReport = useMemo(
-    () => reconcileEndOfDayDrawer(tenantTransactions),
+    () => reconcileEndOfDayDrawer(tenantTransactions.filter((tx) => tx.status === 'completed')),
     [tenantTransactions]
   );
 
@@ -272,7 +276,7 @@ export default function DashboardCommandCenter() {
         const client = clients.find((c) => c.id === visit.client_id);
         if (pet && client) {
           setSmsToastMessage(
-            `Auto-SMS dispatched to ${client.name} (${client.phone}): "${pet.name} is fluffed, styled & ready for pickup at ${activeBusiness.name}! View Report Card & 1-Tap Contactless Pay (Google Pay / Apple Pay / Card): pawtrackr.live/client/${client.id}"`
+            `Demo pickup message prepared for ${client.name}: "${pet.name} is ready for pickup at ${activeBusiness.name}." No SMS was sent.`
           );
           setTimeout(() => setSmsToastMessage(null), 6000);
         }
@@ -344,7 +348,7 @@ export default function DashboardCommandCenter() {
             weight_history: [
               ...p.weight_history,
               {
-                date: '2026-11-07',
+                date: new Date().toISOString().slice(0, 10),
                 weight_lbs: payload.weightLogged,
               },
             ],
@@ -360,7 +364,7 @@ export default function DashboardCommandCenter() {
       const client = clients.find((c) => c.id === pet?.client_id);
       if (pet && client) {
         setSmsToastMessage(
-          `Report Card & Before/After Photos published! SMS sent to ${client.name} (${client.phone}) with link to /client/${client.id}`
+          `Demo report card updated for ${client.name}. No SMS was sent.`
         );
         setTimeout(() => setSmsToastMessage(null), 6000);
       }
@@ -530,7 +534,7 @@ export default function DashboardCommandCenter() {
       visits: nextVisits,
     });
     setSmsToastMessage(
-      `LIVE ONLINE BOOKING ARRIVED: Harrison & Maya Brooks just booked "Winston (F1b Mini Bernedoodle)" at 01:00 PM ($${pkg.price.toFixed(
+      `DEMO BOOKING ADDED: Harrison & Maya Brooks previewed "Winston (F1b Mini Bernedoodle)" at 01:00 PM ($${pkg.price.toFixed(
         2
       )}) via pawtrackr.live/${activeBusiness.slug}!`
     );
@@ -547,15 +551,14 @@ export default function DashboardCommandCenter() {
       tip: 29.0,
       amount: 186.51,
       payment_method: 'apple_pay',
-      stripe_payment_intent_id: `pi_van_outbox_${Date.now().toString(36)}`,
-      status: 'completed',
+      status: 'pending',
       created_at: new Date().toISOString(),
     };
     const nextTx = [newTx, ...transactions];
     setTransactions(nextTx);
     saveUniversalStore({ transactions: nextTx });
     setSmsToastMessage(
-      'MOBILE VAN #2 OFFLINE OUTBOX FLUSHED: Sprinter Van #2 reconnected to 5G and synced 1 offline Tap-to-Pay checkout (+$186.51 settled to POS drawer with 0¢ variance).'
+      'Demo van transaction added as pending. No network payment was made; it is excluded from completed checkout totals.'
     );
   };
 
@@ -586,7 +589,7 @@ export default function DashboardCommandCenter() {
     setVisits(nextVisits);
     saveUniversalStore({ visits: nextVisits });
     setSmsToastMessage(
-      `SMS COAT RESCUE APPROVED: ${targetClient.name} signed the Mobile E-Waiver & approved the +$25.00 Humane Dematting Surcharge for ${targetPet.name}!`
+      `Demo coat-care approval preview for ${targetClient.name} and ${targetPet.name}. No SMS or waiver was sent.`
     );
   };
 
@@ -693,11 +696,11 @@ export default function DashboardCommandCenter() {
     });
     setIsWaitlistModalOpen(false);
     setSmsToastMessage(
-      `CANCELLED SLOT RECOVERED (+$${candidate.price.toFixed(
+      `DEMO WAITLIST SLOT FILLED (quoted $${candidate.price.toFixed(
         2
       )}): ${candidate.clientName} claimed the open 11:15 AM slot for ${
         candidate.petName
-      } (${candidate.breed}) in 12 seconds via SMS!`
+      } (${candidate.breed}). No SMS was sent.`
     );
   };
 
@@ -712,15 +715,14 @@ export default function DashboardCommandCenter() {
       tip: 0,
       amount: 35.0,
       payment_method: 'card',
-      stripe_payment_intent_id: `pi_noshow_vault_${Date.now().toString(36)}`,
-      status: 'completed',
+      status: 'pending',
       created_at: new Date().toISOString(),
     };
     const nextTx = [noShowTx, ...transactions];
     setTransactions(nextTx);
     saveUniversalStore({ transactions: nextTx });
     setSmsToastMessage(
-      'NO-SHOW DEPOSIT CAPTURED ($35.00): Charged vaulted Visa •••• 4829. Automatically split 50/50 ($17.50 credited to Stylist Payroll Ledger • $17.50 to Salon Drawer).'
+      'Demo $35 no-show fee added as pending. No card was charged or funds split.'
     );
   };
 
@@ -743,7 +745,7 @@ export default function DashboardCommandCenter() {
       setVisits(nextVisits);
       saveUniversalStore({ visits: nextVisits });
       setSmsToastMessage(
-        `🎙️ VOICE COMMAND EXECUTED ("Move ${targetPet.name} to Ready"): Stage updated to READY FOR PICKUP & pickup SMS dispatched to ${targetClient.name}!`
+        `Demo command moved ${targetPet.name} to Ready. No pickup SMS was sent to ${targetClient.name}.`
       );
     } else if (cmd === 'weight') {
       const updatedWeight = Number((targetPet.weight_lbs + 0.2).toFixed(1));
@@ -792,7 +794,7 @@ export default function DashboardCommandCenter() {
             onClick={handleSimulateVanOfflineSync}
             className="rounded-xl border border-periwinkle-500/40 bg-periwinkle-500/15 px-3 py-1.5 text-[11px] font-bold text-periwinkle-200 transition hover:bg-periwinkle-500/25"
           >
-            🚐 Simulate Van #2 Offline POS Sync (+$186.51)
+            🚐 Preview Pending Van Checkout ($186.51)
           </button>
           <button
             type="button"
@@ -816,7 +818,7 @@ export default function DashboardCommandCenter() {
             onClick={handleCaptureNoShowFee}
             className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-[11px] font-bold text-emerald-300 transition hover:bg-emerald-500/25"
           >
-            🛡️ Capture $35 No-Show Fee (50/50 Split)
+            🛡️ Preview $35 No-Show Fee
           </button>
           <button
             type="button"
@@ -828,7 +830,7 @@ export default function DashboardCommandCenter() {
         </div>
       </div>
 
-      {/* Live Automated SMS Pickup Notification Toast */}
+      {/* Demo scenario notification */}
       {smsToastMessage && (
         <div className="mb-5 flex items-center justify-between gap-4 rounded-2xl border border-emerald-500/50 bg-emerald-500/15 px-5 py-3.5 text-xs text-emerald-200 shadow-emerald-glow">
           <div className="flex items-center gap-2.5">
@@ -908,6 +910,12 @@ export default function DashboardCommandCenter() {
               Inventory, Gift Cards, Shifts & Audit
             </Link>
             <Link
+              href="/dashboard/appointments/live"
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/25"
+            >
+              Live staff appointments
+            </Link>
+            <Link
               href="/admin"
               className="inline-flex items-center gap-1 rounded-full border border-white/[0.14] bg-white/[0.06] px-2.5 py-0.5 text-[11px] font-semibold text-zinc-200 hover:text-white"
             >
@@ -973,16 +981,16 @@ export default function DashboardCommandCenter() {
         </div>
       </div>
 
-      {/* KPI & ATOMIC DRAWER RECONCILIATION STRIP */}
+      {/* RECORDED DEMO KPI STRIP */}
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="glass-card p-4">
           <div className="flex items-center justify-between text-xs text-zinc-400">
-            <span>Active Salon Pipeline</span>
+            <span>Recorded Salon Visits</span>
             <Calendar className="h-4 w-4 text-periwinkle-400" />
           </div>
           <div className="mt-2 flex items-baseline justify-between">
             <span className="font-mono text-2xl font-extrabold text-white">
-              {tenantVisits.length} Dogs
+              {tenantVisits.length} Visits
             </span>
             <span className="text-xs text-periwinkle-300">
               {
@@ -1025,7 +1033,7 @@ export default function DashboardCommandCenter() {
 
         <div className="glass-card p-4">
           <div className="flex items-center justify-between text-xs text-zinc-400">
-            <span>Settled POS Drawer Total</span>
+            <span>Recorded Demo Checkout Total · All Dates</span>
             <Receipt className="h-4 w-4 text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline justify-between">
@@ -1038,19 +1046,20 @@ export default function DashboardCommandCenter() {
           </div>
         </div>
 
-        <div className="glass-card p-4 border-emerald-500/30">
+        <div className={`glass-card border p-4 ${drawerReport.isBalancedToPenny ? 'border-emerald-500/30' : 'border-amber-500/40'}`}>
           <div className="flex items-center justify-between text-xs text-zinc-400">
-            <span>End-of-Day Drawer Variance</span>
-            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <span>Recorded Checkout Math Difference</span>
+            <ShieldCheck className={`h-4 w-4 ${drawerReport.isBalancedToPenny ? 'text-emerald-400' : 'text-amber-400'}`} />
           </div>
           <div className="mt-2 flex items-baseline justify-between">
             <span className="font-mono text-2xl font-extrabold text-white">
-              $0.00 (0¢)
+              {drawerReport.varianceCents < 0 ? '−' : ''}{formatCents(Math.abs(drawerReport.varianceCents))}
             </span>
-            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
-              BALANCED TO PENNY
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${drawerReport.isBalancedToPenny ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
+              {drawerReport.isBalancedToPenny ? 'RECORDS MATCH' : 'CHECK TOTALS'}
             </span>
           </div>
+          <p className="mt-2 text-xs text-zinc-400">Recorded amounts minus subtotal, discount, tax, and tip. No cash drawer count.</p>
         </div>
       </div>
 
@@ -1991,7 +2000,7 @@ export default function DashboardCommandCenter() {
                 </span>
               </div>
               <div className="border-t border-white/[0.08] pt-2 flex justify-between font-bold text-white">
-                <span>Total Settled Volume:</span>
+                <span>Recorded Demo Checkout Total:</span>
                 <span className="font-mono text-emerald-400">
                   {formatCurrency(drawerReport.totalCollectedDollars)}
                 </span>
@@ -2212,8 +2221,7 @@ export default function DashboardCommandCenter() {
                   AI Waitlist Flash-Blast & Slot Recovery Engine
                 </h3>
                 <p className="mt-1 text-xs text-zinc-400">
-                  Matched 3 waitlisted dogs by breed duration, stylist specialty,
-                  and proximity. First parent to tap the SMS claims the slot.
+                  Preview three sample candidates for this slot. No messages are sent from this demo.
                 </p>
               </div>
               <button
@@ -2227,8 +2235,8 @@ export default function DashboardCommandCenter() {
 
             {waitlistBlastSent && (
               <div className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-3 text-xs font-semibold text-emerald-200">
-                ✓ Instant SMS Flash-Blast sent to all 3 waitlisted parents! Click
-                &ldquo;Simulate Parent Claim&rdquo; below to auto-fill the slot.
+                Demo notification preview shown for three candidates. Click
+                &ldquo;Simulate Parent Claim&rdquo; below to add a sample visit.
               </div>
             )}
 
@@ -2312,7 +2320,7 @@ export default function DashboardCommandCenter() {
                 onClick={() => setWaitlistBlastSent(true)}
                 className="rounded-xl bg-periwinkle-500 px-4 py-2.5 text-xs font-bold text-obsidian-950 shadow-periwinkle-glow hover:bg-periwinkle-400"
               >
-                ⚡ Blast Instant SMS to All 3 Waitlisted Parents
+                ⚡ Preview Waitlist Notification
               </button>
               <span className="text-[11px] text-zinc-400">
                 Recovers up to <strong className="text-emerald-400">$158.00</strong>{' '}

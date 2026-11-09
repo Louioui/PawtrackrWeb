@@ -18,6 +18,8 @@ import {
   PETS,
 } from './mock-tenant-data';
 import { getSupabaseClient } from './supabase/client';
+import { demoStorePatchError } from './demo-store-validation';
+import { mergeDemoStore } from './demo-store-merge';
 import {
   BusinessConfig,
   Client,
@@ -30,6 +32,9 @@ const STORAGE_KEY = 'pawtrackr_universal_store_v1';
 const OUTBOX_KEY = 'pawtrackr_offline_outbox_v1';
 const AUDIT_LOG_KEY = 'pawtrackr_audit_logs_v1';
 const CHANNEL_NAME = 'pawtrackr_universal_sync_channel';
+const PENDING_STORE_KEY = 'pawtrackr_pending_demo_store_v1';
+const STORE_CONFLICT_KEY = 'pawtrackr_demo_store_conflict_v1';
+let pendingStoreFlush: Promise<void> | null = null;
 
 export interface AuditLogEntry {
   id: string;
@@ -64,6 +69,19 @@ export interface UniversalSalonStore {
   transactions: Transaction[];
   updatedAt: number;
 }
+
+interface PendingDemoStore {
+  snapshot: UniversalSalonStore;
+  base: Omit<UniversalSalonStore, 'updatedAt'>;
+}
+
+const storeContent = (store: UniversalSalonStore): Omit<UniversalSalonStore, 'updatedAt'> => ({
+  configs: store.configs,
+  clients: store.clients,
+  pets: store.pets,
+  visits: store.visits,
+  transactions: store.transactions,
+});
 
 const DEFAULT_STORE: UniversalSalonStore = {
   configs: BUSINESS_CONFIGS,
@@ -105,6 +123,13 @@ export function loadUniversalStore(): UniversalSalonStore {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_STORE;
     const parsed = JSON.parse(raw) as UniversalSalonStore;
+    if (demoStorePatchError({
+      configs: parsed.configs,
+      clients: parsed.clients,
+      pets: parsed.pets,
+      visits: parsed.visits,
+      transactions: parsed.transactions,
+    })) return DEFAULT_STORE;
     return {
       configs: parsed.configs ?? DEFAULT_STORE.configs,
       clients: parsed.clients ?? DEFAULT_STORE.clients,
@@ -125,12 +150,23 @@ export function saveUniversalStore(
   const next: UniversalSalonStore = {
     ...current,
     ...partial,
-    updatedAt: Date.now(),
+    updatedAt: Math.max(Date.now(), current.updatedAt + 1),
   };
 
   if (typeof window !== 'undefined') {
     try {
+      const previousPending = window.localStorage.getItem(PENDING_STORE_KEY);
+      let base = storeContent(current);
+      if (previousPending) {
+        try {
+          const parsed = JSON.parse(previousPending) as PendingDemoStore;
+          if (parsed.base && !demoStorePatchError(parsed.base)) base = parsed.base;
+        } catch { /* Preserve the current snapshot as the fallback base. */ }
+      }
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      // Mark the edit pending before subscribers read the new snapshot.
+      window.localStorage.setItem(PENDING_STORE_KEY, JSON.stringify({ snapshot: next, base } satisfies PendingDemoStore));
+      window.dispatchEvent(new Event('pawtrackr-demo-sync-status'));
       if ('BroadcastChannel' in window) {
         const bc = new BroadcastChannel(CHANNEL_NAME);
         bc.postMessage({ type: 'STORE_UPDATED', payload: next });
@@ -139,14 +175,8 @@ export function saveUniversalStore(
       window.dispatchEvent(
         new CustomEvent('pawtrackr-store-sync', { detail: next })
       );
-      // Persist to server-side multi-tenant ledger (`/api/store`) for cross-device network sync
-      void fetch('/api/store', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(partial),
-      }).catch(() => {
-        // Offline outbox fallback handles disconnected mobile vans
-      });
+      // Keep the latest whole demo snapshot until the server acknowledges it.
+      void flushPendingDemoStore();
     } catch {
       // Ignore quota errors in private browsing modes
     }
@@ -155,9 +185,94 @@ export function saveUniversalStore(
   return next;
 }
 
+export function hasPendingDemoStore(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(PENDING_STORE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function hasDemoStoreConflict(): boolean {
+  if (typeof window === 'undefined') return false;
+  try { return window.localStorage.getItem(STORE_CONFLICT_KEY) === 'true'; } catch { return false; }
+}
+
+/** Best-effort demo retry. A production outbox needs per-record conflict resolution. */
+export function flushPendingDemoStore(): Promise<void> {
+  if (typeof window === 'undefined' || !navigator.onLine) return Promise.resolve();
+  if (pendingStoreFlush) return pendingStoreFlush;
+  pendingStoreFlush = (async () => {
+    while (navigator.onLine) {
+      const raw = window.localStorage.getItem(PENDING_STORE_KEY);
+      if (!raw) break;
+      let pending: PendingDemoStore;
+      try {
+        pending = JSON.parse(raw) as PendingDemoStore;
+        if (!pending.snapshot || !pending.base || demoStorePatchError(pending.base) || demoStorePatchError(storeContent(pending.snapshot))) {
+          window.localStorage.setItem(STORE_CONFLICT_KEY, 'true');
+          window.dispatchEvent(new Event('pawtrackr-demo-sync-status'));
+          break;
+        }
+      } catch {
+        window.localStorage.setItem(STORE_CONFLICT_KEY, 'true');
+        window.dispatchEvent(new Event('pawtrackr-demo-sync-status'));
+        break;
+      }
+      try {
+        const currentResponse = await fetch('/api/store', { cache: 'no-store' });
+        if (!currentResponse.ok) break;
+        const currentData = await currentResponse.json() as { store?: UniversalSalonStore };
+        const currentServerStore = currentData.store;
+        if (!currentServerStore || !Number.isSafeInteger(currentServerStore.updatedAt) || demoStorePatchError(storeContent(currentServerStore))) break;
+        const merged = mergeDemoStore(pending.base, storeContent(pending.snapshot), storeContent(currentServerStore));
+        if (!merged) {
+          window.localStorage.setItem(STORE_CONFLICT_KEY, 'true');
+          window.dispatchEvent(new Event('pawtrackr-demo-sync-status'));
+          break;
+        }
+        window.localStorage.removeItem(STORE_CONFLICT_KEY);
+        window.dispatchEvent(new Event('pawtrackr-demo-sync-status'));
+        let serverStore = currentServerStore;
+        if (JSON.stringify(merged) !== JSON.stringify(storeContent(currentServerStore))) {
+          const response = await fetch('/api/store', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'If-Match': String(currentServerStore.updatedAt) },
+            body: JSON.stringify(merged),
+          });
+          if (response.status === 409) {
+            window.localStorage.setItem(STORE_CONFLICT_KEY, 'true');
+            window.dispatchEvent(new Event('pawtrackr-demo-sync-status'));
+            break;
+          }
+          if (!response.ok) break;
+          const acknowledgement = await response.json() as { store?: UniversalSalonStore };
+          if (!acknowledgement.store || !Number.isSafeInteger(acknowledgement.store.updatedAt) || demoStorePatchError(storeContent(acknowledgement.store))) break;
+          serverStore = acknowledgement.store;
+        }
+        if (window.localStorage.getItem(PENDING_STORE_KEY) === raw) {
+          if (window.localStorage.getItem(STORAGE_KEY) === JSON.stringify(pending.snapshot)) {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(serverStore));
+            window.dispatchEvent(new CustomEvent('pawtrackr-store-sync', { detail: serverStore }));
+          }
+          window.localStorage.removeItem(PENDING_STORE_KEY);
+          window.localStorage.removeItem(STORE_CONFLICT_KEY);
+          window.dispatchEvent(new Event('pawtrackr-demo-sync-status'));
+        }
+      } catch {
+        break;
+      }
+    }
+  })().finally(() => { pendingStoreFlush = null; });
+  return pendingStoreFlush;
+}
+
 export function subscribeUniversalStore(
   onUpdate: (store: UniversalSalonStore) => void,
-  tenantBusinessId?: string
+  tenantBusinessId?: string,
+  onServerStatus?: (status: 'available' | 'unavailable') => void,
+  refreshEveryMs?: number
 ): () => void {
   if (typeof window === 'undefined') {
     return () => {};
@@ -173,11 +288,24 @@ export function subscribeUniversalStore(
     };
   }
 
-  // Hydrate from server-side persistent ledger (`/api/store`) so all network devices stay in sync
-  void fetch('/api/store')
-    .then((r) => (r.ok ? r.json() : null))
+  // Keep the last local snapshot visible while refreshing the demo server ledger.
+  let request: AbortController | null = null;
+  let disposed = false;
+  const refreshServer = () => {
+    if (disposed || request || !navigator.onLine) return;
+    const currentRequest = new AbortController();
+    request = currentRequest;
+    void fetch('/api/store', { signal: currentRequest.signal, cache: 'no-store' })
+    .then((r) => {
+      if (!r.ok) throw new Error('Store unavailable');
+      return r.json();
+    })
     .then((data) => {
+      if (disposed) return;
       if (data?.store) {
+        onServerStatus?.('available');
+        // A pending local edit is the visible source until its write is acknowledged.
+        if (hasPendingDemoStore()) return;
         const local = loadUniversalStore();
         if (
           !window.localStorage.getItem(STORAGE_KEY) ||
@@ -186,14 +314,35 @@ export function subscribeUniversalStore(
           window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data.store));
           onUpdate(data.store as UniversalSalonStore);
         }
+      } else {
+        onServerStatus?.('unavailable');
       }
     })
     .catch(() => {
-      // Offline mode: rely on localStorage + IndexedDB outbox
+      // Offline mode: retain the local snapshot and pending demo write.
+      if (!currentRequest.signal.aborted && !disposed) onServerStatus?.('unavailable');
+    })
+    .finally(() => {
+      if (request === currentRequest) request = null;
     });
+  };
+  void flushPendingDemoStore().then(refreshServer);
+  const refreshWhenOnline = () => {
+    void flushPendingDemoStore().then(refreshServer);
+  };
+  const refreshWhenVisible = () => {
+    if (document.visibilityState === 'visible') refreshServer();
+  };
+  const refreshTimer = refreshEveryMs && refreshEveryMs > 0
+    ? window.setInterval(refreshWhenVisible, refreshEveryMs)
+    : null;
+  window.addEventListener('online', refreshWhenOnline);
+  if (refreshTimer !== null) {
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+  }
 
   // Optional Supabase Realtime WebSocket channel (#6)
-  const supabase = getSupabaseClient(tenantBusinessId);
+  const supabase = getSupabaseClient();
   const realtimeChannel = supabase
     ? supabase
         .channel(`pawtrackr-realtime-${tenantBusinessId ?? 'global'}`)
@@ -224,6 +373,13 @@ export function subscribeUniversalStore(
   window.addEventListener('pawtrackr-store-sync', handleCustom);
 
   return () => {
+    disposed = true;
+    request?.abort();
+    window.removeEventListener('online', refreshWhenOnline);
+    if (refreshTimer !== null) {
+      window.clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    }
     if (bc) bc.close();
     if (realtimeChannel && supabase) {
       supabase.removeChannel(realtimeChannel);

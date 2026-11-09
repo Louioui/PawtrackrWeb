@@ -54,7 +54,7 @@ export function SupportAndTourWidget() {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-40">
+    <div className="mx-auto flex max-w-7xl justify-end px-4 pb-6 sm:px-6 lg:px-8">
       {isOpen ? (
         <div className="w-80 sm:w-96 overflow-hidden rounded-3xl border border-periwinkle-500/40 bg-obsidian-800/95 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center justify-between border-b border-white/[0.08] bg-obsidian-900 px-4 py-3">
@@ -79,7 +79,7 @@ export function SupportAndTourWidget() {
                     : 'text-zinc-400 hover:text-white'
                 }`}
               >
-                24/7 Support (#32)
+                Support preview
               </button>
             </div>
             <button
@@ -113,8 +113,8 @@ export function SupportAndTourWidget() {
           ) : (
             <form onSubmit={handleSupportSubmit} className="p-4 space-y-3">
               <p className="text-xs text-zinc-300">
-                Need help pairing a Stripe Terminal reader or migrating CSV
-                files? Message our engineering concierge:
+                Preview a support request for reader setup or CSV migration.
+                This demo does not send messages.
               </p>
               <textarea
                 rows={3}
@@ -126,7 +126,7 @@ export function SupportAndTourWidget() {
               {sentSupport && (
                 <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
                   <CheckCircle2 className="h-4 w-4" />
-                  Ticket logged! Concierge response ETA: &lt; 3 mins.
+                  Request preview complete. No ticket was sent.
                 </div>
               )}
               <button
@@ -134,7 +134,7 @@ export function SupportAndTourWidget() {
                 className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-xs font-bold text-obsidian-950"
               >
                 <Send className="h-3.5 w-3.5" />
-                Send to Pawtrackr Concierge
+                Preview support request
               </button>
             </form>
           )}
@@ -142,7 +142,7 @@ export function SupportAndTourWidget() {
       ) : (
         <button
           type="button"
-          aria-label="Open Guided Tour and Support Concierge"
+          aria-label="Open Tour & Concierge"
           onClick={() => setIsOpen(true)}
           className="inline-flex items-center gap-2 rounded-full border border-periwinkle-500/40 bg-obsidian-800/95 px-4 py-2.5 text-xs font-bold text-white shadow-periwinkle-glow backdrop-blur-xl transition hover:scale-105 hover:border-periwinkle-400"
         >

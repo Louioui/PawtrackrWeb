@@ -4,7 +4,7 @@
 // client names, unformatted phone digits, breeds, and behavior aura tags.
 // ============================================================================
 
-import { Client, Pet, Visit } from '@/types/database';
+import type { Client, Pet, Visit } from '@/types/database';
 
 export interface SearchableSalonRecord {
   pet: Pet;

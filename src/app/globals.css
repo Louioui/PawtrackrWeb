@@ -43,3 +43,8 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #8b95ff;
 }
+
+@media (min-width: 1024px), (orientation: landscape) and (min-width: 640px) {
+  .live-agenda { display: none; }
+  .live-timeline { display: block; }
+}

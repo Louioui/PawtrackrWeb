@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { calculateAtomicPOSCheckout } from '@/lib/pos-math';
-import { stripe } from '@/lib/stripe';
-import { getSupabaseClient } from '@/lib/supabase/client';
 import { readServerLedger, writeServerLedger } from '@/lib/server-db';
 import { PaymentMethod, Transaction } from '@/types/database';
+import { requireLocalDemoApi } from '@/lib/demo-boundary';
+import { canRecordDemoCheckout } from '@/lib/demo-checkout-eligibility';
 
 export async function POST(req: NextRequest) {
+  const blocked = requireLocalDemoApi();
+  if (blocked) return blocked;
   try {
     const body = await req.json();
     const {
@@ -21,7 +24,6 @@ export async function POST(req: NextRequest) {
       custom_tip_dollars = 0,
       payment_method = 'card',
       loyalty_points_per_dollar = 2,
-      stripe_connected_account_id,
     } = body;
 
     if (!business_id || !visit_id) {
@@ -46,51 +48,18 @@ export async function POST(req: NextRequest) {
       loyaltyPointsPerDollar: Number(loyalty_points_per_dollar),
     });
 
-    // 2. Create Stripe Connect PaymentIntent if card/apple_pay & Stripe is configured
-    let paymentIntentId = `pi_atomic_${Date.now().toString(36)}`;
-    if (
-      stripe &&
-      (payment_method === 'card' || payment_method === 'apple_pay') &&
-      breakdown.totalCents > 0
-    ) {
-      const platformFeeCents = Math.round(breakdown.totalCents * 0.012); // 1.2% platform fee
-      const pi = await stripe.paymentIntents.create({
-        amount: breakdown.totalCents,
-        currency: 'usd',
-        metadata: {
-          business_id,
-          visit_id,
-          verification_hash: breakdown.verificationHash,
-        },
-        ...(stripe_connected_account_id
-          ? {
-              application_fee_amount: platformFeeCents,
-              transfer_data: {
-                destination: stripe_connected_account_id,
-              },
-            }
-          : {}),
-      });
-      paymentIntentId = pi.id;
+    // This route records a local demo checkout only. A real card payment needs
+    // authenticated tenant access and a confirmed payment event.
+    const ledger = readServerLedger();
+    const visit = ledger.visits.find((item) => item.id === visit_id && item.business_id === business_id);
+    if (!visit) {
+      return NextResponse.json({ error: 'Demo visit not found for this salon.' }, { status: 404 });
     }
-
-    // 3. Commit via Supabase RPC `complete_atomic_pos_checkout` if cloud DB connected
-    const supabase = getSupabaseClient(business_id);
-    if (supabase) {
-      await supabase.rpc('complete_atomic_pos_checkout', {
-        p_business_id: business_id,
-        p_visit_id: visit_id,
-        p_subtotal: breakdown.subtotalDollars,
-        p_discount: breakdown.discountDollars,
-        p_tax: breakdown.taxDollars,
-        p_tip: breakdown.tipDollars,
-        p_payment_method: payment_method as PaymentMethod,
-        p_stripe_payment_intent_id: paymentIntentId,
-      });
+    if (!canRecordDemoCheckout(visit, ledger.transactions)) {
+      return NextResponse.json({ error: 'This demo visit already has a completed checkout.' }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
     }
-
-    const settledTx: Transaction = {
-      id: `tx-${Date.now().toString(36)}`,
+    const demoTx: Transaction = {
+      id: randomUUID(),
       business_id,
       visit_id,
       subtotal: breakdown.subtotalDollars,
@@ -99,17 +68,15 @@ export async function POST(req: NextRequest) {
       tip: breakdown.tipDollars,
       amount: breakdown.totalDollars,
       payment_method: payment_method as PaymentMethod,
-      stripe_payment_intent_id: paymentIntentId,
       status: 'completed',
       created_at: new Date().toISOString(),
     };
 
-    // 4. Persist settled transaction & mark visit completed in Server Ledger
-    const ledger = readServerLedger();
+    // Persist a demo transaction and mark its matching visit complete.
     writeServerLedger({
-      transactions: [settledTx, ...ledger.transactions],
+      transactions: [demoTx, ...ledger.transactions],
       visits: ledger.visits.map((v) =>
-        v.id === visit_id
+        v.id === visit_id && v.business_id === business_id
           ? {
               ...v,
               status: 'completed',
@@ -121,7 +88,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      transaction: settledTx,
+      transaction: demoTx,
+      mode: 'demo',
       breakdown,
     });
   } catch (error) {

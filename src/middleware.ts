@@ -53,7 +53,7 @@ export function middleware(req: NextRequest) {
   const res = NextResponse.next();
 
   // 3. Hardened Multi-Tenant & OWASP Security Headers (#45)
-  res.headers.set('x-pawtrackr-rls-mode', 'strict-business-id');
+  res.headers.set('x-pawtrackr-data-mode', pathname === '/api/analytics' ? 'authenticated-read' : pathname.startsWith('/portal/live') ? 'public-catalog' : 'demo-only');
   res.headers.set('x-frame-options', 'SAMEORIGIN');
   res.headers.set('x-content-type-options', 'nosniff');
   res.headers.set('referrer-policy', 'strict-origin-when-cross-origin');

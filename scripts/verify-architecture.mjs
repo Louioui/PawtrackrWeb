@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 // ============================================================================
-// PAWTRACKR WEB — 50-POINT ENTERPRISE SAAS VERIFICATION & E2E INVARIANT SUITE
-// 1. Verifies all 3 sequential SQL migrations & SHA-256 checksums (#2)
-// 2. Stress-tests 1,911+ Atomic POS & Retail/Service Tax Split permutations (#4, #26)
-// 3. Verifies Multi-Stylist Tip Split largest-remainder 0¢ loss (#4, #16, #43)
-// 4. Benchmarks Multi-Token Search Engine latency (< 10ms SLA) (#5)
-// 5. Audits all 14 multi-tenant PostgreSQL tables & 22 production routes (#1, #50)
+// Static SQL inventory and reference-model checks. This file does not execute
+// migrations or prove RLS, production API behavior, or payment settlement.
+// Application engine tests live in tests/*.test.mjs.
 // ============================================================================
 
 import assert from 'node:assert/strict';
@@ -99,7 +96,7 @@ function calculateAtomicPOSCheckout({
 }
 
 console.log('================================================================');
-console.log('🏛️  PAWTRACKR WEB — 50-POINT ENTERPRISE VERIFICATION SUITE');
+console.log('PAWTRACKR WEB — STATIC INVENTORY AND REFERENCE-MODEL CHECKS');
 console.log('================================================================\n');
 
 // TEST 1: Sequential SQL Migrations & Checksum Verification (#2)
@@ -108,11 +105,15 @@ const migFiles = fs
   .readdirSync(migrationsDir)
   .filter((f) => f.endsWith('.sql'))
   .sort();
-assert.equal(migFiles.length, 3, 'Expected 3 sequential SQL migrations');
-for (const file of migFiles) {
+assert.ok(migFiles.length >= 3, 'Expected the three base SQL migrations');
+for (const [index, file] of migFiles.entries()) {
+  assert.ok(
+    file.startsWith(`${String(index + 1).padStart(4, '0')}_`),
+    `Expected sequential migration ${index + 1}, found ${file}`
+  );
   const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
   const hash = crypto.createHash('sha256').update(sql).digest('hex').slice(0, 10);
-  console.log(`✅ [PASS] SQL Migration ${file} verified (sha256:${hash})`);
+  console.log(`✓ SQL file inventoried: ${file} (sha256:${hash})`);
 }
 
 // TEST 2: 1,911+ Atomic POS + Retail/Service Tax Split Permutations (#4, #26, #30)
@@ -164,7 +165,7 @@ for (const tx of simulatedDrawerTransactions) {
 }
 assert.equal(sumTotal - (sumSub - sumDisc + sumTax + sumTip), 0);
 console.log(
-  `✅ [PASS] Atomic POS & Retail Tax Split Engine: ${totalPermutations} permutations verified with 0¢ drawer variance.`
+  `✓ Reference POS model: ${totalPermutations} combinations balanced to 0¢.`
 );
 
 // TEST 3: Multi-Stylist Largest-Remainder Penny Split (#4, #16, #43)
@@ -178,7 +179,7 @@ for (const oddPool of [100, 3333, 4501, 7777, 9999]) {
   assert.equal(sumSplit, oddPool, 'Multi-stylist split lost or gained a penny');
 }
 console.log(
-  '✅ [PASS] Multi-Stylist Tip Split Engine: Largest-remainder 0¢ loss verified across odd pools.'
+  '✓ Reference tip-split model: odd-cent pools balanced.'
 );
 
 // TEST 4: Sub-10ms Multi-Token Search Engine Latency Benchmark (#5)
@@ -214,18 +215,19 @@ for (let i = 0; i < iterations; i++) {
 const avgQueryMs = (performance.now() - startSearch) / iterations;
 assert.ok(avgQueryMs < 10);
 console.log(
-  `✅ [PASS] Sub-10ms Multi-Token Search (500 records): Avg ${avgQueryMs.toFixed(
+  `✓ Reference substring filter (500 records): Avg ${avgQueryMs.toFixed(
     4
   )} ms / query.`
 );
 
-// TEST 5: Verify All 14 Multi-Tenant Tables Across Migrations (#1 - #50)
+// TEST 5: Inventory the enterprise tables defined in migration 0003.
+// Supabase owns its migration history; the app must not create a parallel
+// schema_migrations table with placeholder checksums.
 const mig3Sql = fs.readFileSync(
   path.join(migrationsDir, '0003_enterprise_50_roadmap.sql'),
   'utf8'
 );
 for (const table of [
-  'schema_migrations',
   'retail_inventory',
   'gift_cards_and_credits',
   'staff_shifts',
@@ -239,6 +241,6 @@ for (const table of [
   );
 }
 console.log(
-  '✅ [PASS] All 14 Multi-Tenant PostgreSQL Tables & RLS Policies Verified (50/50 Roadmap Complete).'
+  '✓ Required table names found in migration text; SQL execution and RLS remain unverified.'
 );
-console.log('\n🎉 ALL 50 PAWTRACKR WEB MASTER ROADMAP CHECKS PASSED!');
+console.log('\nStatic and reference-model checks passed. See focused tests for application code.');

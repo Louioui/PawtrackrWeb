@@ -79,7 +79,7 @@ export function ReportCardPublisherModal({
     e.preventDefault();
     const newPair: GroomingPhotoPair = {
       id: `gal-${Date.now().toString(36)}`,
-      visit_date: 'Nov 07, 2026 (Just Published)',
+      visit_date: new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: '2-digit', year: 'numeric' }).format(new Date()),
       package_name: visit.package_name,
       groomer_name: stylistName,
       before_url: beforeUrl,

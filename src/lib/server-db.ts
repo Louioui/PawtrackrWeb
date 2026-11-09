@@ -7,6 +7,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { demoStorePatchError } from './demo-store-validation';
 import {
   BUSINESS_CONFIGS,
   CLIENTS,
@@ -31,7 +33,7 @@ export interface ServerLedgerData {
   updatedAt: number;
 }
 
-const DATA_DIR = path.join(process.cwd(), '.pawtrackr-data');
+const DATA_DIR = process.env.PAWTRACKR_DEMO_DATA_DIR ?? path.join(process.cwd(), '.pawtrackr-data');
 const LEDGER_FILE = path.join(DATA_DIR, 'tenant-ledger.json');
 
 const SEED_LEDGER: ServerLedgerData = {
@@ -56,6 +58,13 @@ export function readServerLedger(): ServerLedgerData {
     }
     const raw = fs.readFileSync(LEDGER_FILE, 'utf8');
     const parsed = JSON.parse(raw) as ServerLedgerData;
+    if (demoStorePatchError({
+      configs: parsed.configs,
+      clients: parsed.clients,
+      pets: parsed.pets,
+      visits: parsed.visits,
+      transactions: parsed.transactions,
+    })) return SEED_LEDGER;
     return {
       configs: parsed.configs ?? SEED_LEDGER.configs,
       clients: parsed.clients ?? SEED_LEDGER.clients,
@@ -76,14 +85,17 @@ export function writeServerLedger(
   const next: ServerLedgerData = {
     ...current,
     ...partial,
-    updatedAt: Date.now(),
+    updatedAt: Math.max(Date.now(), current.updatedAt + 1),
   };
 
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const temporaryFile = path.join(DATA_DIR, `tenant-ledger-${randomUUID()}.tmp`);
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(LEDGER_FILE, JSON.stringify(next, null, 2), 'utf8');
-  } catch {
-    // Fallback gracefully on read-only serverless filesystems
+    fs.writeFileSync(temporaryFile, JSON.stringify(next, null, 2), 'utf8');
+    fs.renameSync(temporaryFile, LEDGER_FILE);
+  } catch (error) {
+    try { fs.rmSync(temporaryFile, { force: true }); } catch { /* Keep the original write error. */ }
+    throw error;
   }
 
   return next;

@@ -29,10 +29,10 @@ export default function LandingPage() {
     'salon_pro'
   );
   const [isProvisioning, setIsProvisioning] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const [provisionedResult, setProvisionedResult] = useState<{
     name: string;
     slug: string;
-    businessId: string;
     monthlyRate: number;
   } | null>(null);
 
@@ -47,6 +47,7 @@ export default function LandingPage() {
 
   const handleInstantLaunch = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLaunchError(null);
     setIsProvisioning(true);
     try {
       const res = await fetch('/api/billing/subscribe', {
@@ -64,13 +65,16 @@ export default function LandingPage() {
         setProvisionedResult({
           name: data.business.name,
           slug: data.business.slug,
-          businessId: data.business.id,
           monthlyRate:
             selectedPlan === 'salon_pro'
               ? SAAS_PLANS.salon_pro.monthlyPriceDollars
               : SAAS_PLANS.solo_van.monthlyPriceDollars,
         });
+      } else {
+        setLaunchError(data.error ?? 'The demo salon could not be created.');
       }
+    } catch {
+      setLaunchError('The demo salon is unavailable. Please try again later.');
     } finally {
       setIsProvisioning(false);
     }
@@ -86,8 +90,7 @@ export default function LandingPage() {
           <div className="inline-flex items-center gap-2 rounded-full border border-periwinkle-500/35 bg-periwinkle-500/10 px-4 py-1.5 text-xs font-semibold text-periwinkle-300 shadow-periwinkle-glow">
             <Sparkles className="h-3.5 w-3.5 text-periwinkle-400" />
             <span>
-              Enterprise B2B Vertical SaaS • Built to Outperform MoeGo &
-              DaySmart Pet
+              Interactive pet grooming workspace demo
             </span>
           </div>
 
@@ -99,13 +102,9 @@ export default function LandingPage() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-base sm:text-lg text-zinc-300 leading-relaxed">
-            Zero-lag local-first speed meets multi-tenant{' '}
-            <span className="text-white font-semibold">
-              Supabase PostgreSQL Row-Level Security
-            </span>
-            . Sub-10ms multi-token search, instant behavior safety auras,
-            self-service booking portals, and a 4-step atomic POS checkout that
-            balances every drawer down to the exact penny.
+            Explore a sample salon dashboard with client and pet search,
+            behavior safety flags, self-service booking, checkout workflows,
+            and analytics derived from completed demo checkouts.
           </p>
 
           {/* 3-Portal Instant Action Buttons */}
@@ -115,7 +114,7 @@ export default function LandingPage() {
               className="inline-flex items-center gap-2.5 rounded-2xl bg-periwinkle-500 px-6 py-4 text-sm font-bold text-obsidian-950 shadow-periwinkle-glow transition hover:bg-periwinkle-400"
             >
               <Command className="h-4 w-4" />
-              Open Salon Command Center
+              Open Demo Dashboard
               <ArrowRight className="h-4 w-4" />
             </Link>
 
@@ -124,7 +123,7 @@ export default function LandingPage() {
               className="inline-flex items-center gap-2.5 rounded-2xl border border-white/[0.12] bg-obsidian-700/80 px-6 py-4 text-sm font-semibold text-white transition hover:border-periwinkle-500/50 hover:bg-obsidian-600"
             >
               <Globe className="h-4 w-4 text-periwinkle-400" />
-              Test Public Self-Booking Portal
+              Preview Self-Booking Portal
             </Link>
 
             <Link
@@ -132,7 +131,7 @@ export default function LandingPage() {
               className="inline-flex items-center gap-2.5 rounded-2xl border border-emerald-500/35 bg-emerald-500/10 px-6 py-4 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
             >
               <Heart className="h-4 w-4 text-emerald-400" />
-              View Pet Parent Loyalty Portal
+              Preview Pet Parent Portal
             </Link>
           </div>
 
@@ -158,12 +157,11 @@ export default function LandingPage() {
               3-Pillar Architecture
             </span>
             <h2 className="mt-1 text-2xl sm:text-3xl font-bold text-white">
-              Three Frictionless Portals. One Unified Multi-Tenant Cloud.
+              Three Connected Grooming Workflows
             </h2>
           </div>
           <span className="font-mono text-xs text-zinc-400">
-            Partitioned by <code className="text-emerald-400">business_id</code>{' '}
-            UUID + PostgreSQL RLS
+            Sample salon data for product exploration
           </span>
         </div>
 
@@ -248,7 +246,7 @@ export default function LandingPage() {
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  Live tenant switcher proving RLS isolation
+                  Sample salon switcher for exploring demo data
                 </li>
               </ul>
             </div>
@@ -257,7 +255,7 @@ export default function LandingPage() {
                 href="/dashboard"
                 className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-300 hover:text-emerald-200"
               >
-                Launch Live Salon Command Center{' '}
+                Open Demo Salon Dashboard{' '}
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
@@ -383,7 +381,7 @@ export default function LandingPage() {
                   Multi-Tenant Security Standard
                 </td>
                 <td className="px-4 py-4 font-semibold text-white">
-                  PostgreSQL RLS per <code className="text-emerald-300">business_id</code>
+                  Planned: verified tenant access and database RLS
                 </td>
                 <td className="px-4 py-4 text-zinc-400">App-layer filtering</td>
                 <td className="px-4 py-4 text-zinc-400">Legacy shared DB</td>
@@ -400,14 +398,13 @@ export default function LandingPage() {
         <div className="space-y-6 lg:col-span-7">
           <div>
             <span className="text-xs font-bold uppercase tracking-widest text-periwinkle-400">
-              Stripe Billing & Connect Integrated
+              Subscription plans shown for preview
             </span>
             <h2 className="mt-1 text-2xl sm:text-3xl font-bold text-white">
               Transparent Enterprise B2B Pricing
             </h2>
             <p className="mt-2 text-sm text-zinc-400">
-              No hidden per-groomer fees or surprise SMS markups. Launch your
-              isolated tenant in 60 seconds.
+              Preview the proposed plans and onboarding flow with demo data.
             </p>
           </div>
 
@@ -482,7 +479,7 @@ export default function LandingPage() {
               <div className="flex items-center gap-2 text-emerald-300">
                 <ShieldCheck className="h-5 w-5" />
                 <span className="text-sm font-bold">
-                  Tenant Partition Provisioned!
+                  Demo plan preview ready
                 </span>
               </div>
               <div className="space-y-1.5 text-xs text-zinc-300">
@@ -493,30 +490,28 @@ export default function LandingPage() {
                   </span>
                 </div>
                 <div>
-                  Tenant UUID:{' '}
-                  <span className="font-mono text-emerald-300">
-                    {provisionedResult.businessId}
-                  </span>
+                  Proposed monthly rate: ${provisionedResult.monthlyRate}
                 </div>
                 <div>
-                  Public URL:{' '}
+                  Example booking slug:{' '}
                   <span className="font-mono text-periwinkle-300">
-                    pawtrackr.live/{provisionedResult.slug}
+                    {provisionedResult.slug}
                   </span>
                 </div>
+                <p>No subscription, tenant, or public page has been created.</p>
               </div>
               <div className="flex flex-col gap-2 pt-2">
                 <Link
-                  href={`/portal/${provisionedResult.slug}`}
+                  href="/portal/bespoke-grooming"
                   className="w-full rounded-xl bg-periwinkle-500 py-2.5 text-center text-xs font-bold text-obsidian-950 transition hover:bg-periwinkle-400"
                 >
-                  Open Your Public Booking Page →
+                  Preview a Sample Booking Page →
                 </Link>
                 <Link
                   href="/dashboard"
                   className="w-full rounded-xl border border-white/[0.12] bg-obsidian-900 py-2.5 text-center text-xs font-semibold text-white hover:bg-obsidian-700"
                 >
-                  Enter Owner Command Center
+                  Preview Owner Dashboard
                 </Link>
               </div>
             </div>
@@ -570,11 +565,14 @@ export default function LandingPage() {
                 className="w-full rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-obsidian-950 shadow-emerald-glow transition hover:bg-emerald-400 disabled:opacity-50"
               >
                 {isProvisioning
-                  ? 'Provisioning Tenant & RLS Policies...'
-                  : `Launch Salon (${
+                  ? 'Preparing demo salon...'
+                  : `Preview Salon (${
                       selectedPlan === 'salon_pro' ? '$149/mo' : '$119/mo'
                     })`}
               </button>
+              {launchError && (
+                <p role="alert" className="text-xs text-amber-300">{launchError}</p>
+              )}
             </form>
           )}
         </div>

@@ -69,6 +69,7 @@ export interface BusinessConfig {
     reviewCount: number;
     packages: ServicePackage[];
     addons: ServiceAddon[];
+    weekly_checkout_target_cents?: number;
     operating_hours: {
       open: string;
       close: string;

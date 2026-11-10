@@ -172,6 +172,9 @@ export async function POST(req: NextRequest) {
     payment_method: checkout.payment_method,
     status: 'completed',
   }).select('id,visit_id,amount,status,created_at').single();
+  if (insertError?.code === '23505') {
+    return reply({ error: 'A completed checkout is already recorded for this visit.' }, 409);
+  }
   if (insertError || !createdTx) {
     return reply({ error: 'The checkout record could not be saved.' }, 502);
   }

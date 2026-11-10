@@ -147,6 +147,24 @@ BEGIN
       <> '2030-01-01 10:15:00+00'::timestamptz THEN
     RAISE EXCEPTION 'Caller could shorten the protected reservation range';
   END IF;
+  BEGIN
+    INSERT INTO public.transactions (business_id, visit_id, subtotal, discount, tax, tip, amount, payment_method, status)
+    VALUES ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-2222-4222-8222-222222222222',
+      40.00, 0.00, 3.00, 5.00, 99.99, 'card', 'completed');
+    RAISE EXCEPTION 'Unbalanced transaction amount was accepted';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM = 'Unbalanced transaction amount was accepted' THEN RAISE; END IF;
+  END;
+  INSERT INTO public.transactions (business_id, visit_id, subtotal, discount, tax, tip, amount, payment_method, status)
+  VALUES ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-2222-4222-8222-222222222222',
+    40.00, 0.00, 3.00, 5.00, 48.00, 'card', 'completed');
+  BEGIN
+    INSERT INTO public.transactions (business_id, visit_id, subtotal, discount, tax, tip, amount, payment_method, status)
+    VALUES ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-2222-4222-8222-222222222222',
+      40.00, 0.00, 3.00, 5.00, 48.00, 'card', 'completed');
+    RAISE EXCEPTION 'Duplicate completed checkout for visit was accepted';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
 END $$;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-4000-8000-000000000000', false);

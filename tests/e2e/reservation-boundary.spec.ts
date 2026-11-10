@@ -56,6 +56,22 @@ test('staff reservation endpoint requires a real session and validates the reque
     data: { id: '44444444-4444-4444-8444-444444444444', status: 'completed' },
   });
   expect(invalidPatch.status()).toBe(401);
+
+  const missingClientsRead = await request.get('/api/clients');
+  expect(missingClientsRead.status()).toBe(401);
+  expect(missingClientsRead.headers()['x-pawtrackr-data-mode']).toBe('authenticated-read');
+
+  const missingClientsWrite = await request.post('/api/clients', {
+    data: { client_name: 'Sophia', client_phone: '4155550199', pet_name: 'Bello', breed: 'Poodle' },
+  });
+  expect(missingClientsWrite.status()).toBe(401);
+  expect(missingClientsWrite.headers()['x-pawtrackr-data-mode']).toBe('authenticated-write');
+
+  const malformedClientsWrite = await request.post('/api/clients', {
+    headers: { Authorization: 'Bearer invalid-token' },
+    data: { client_name: 'Sophia', client_phone: '123', pet_name: 'Bello', breed: 'Poodle' },
+  });
+  expect(malformedClientsWrite.status()).toBe(400);
 });
 
 test('live appointments requires staff sign-in and fits narrow mobile viewports', async ({ page }) => {
@@ -344,5 +360,108 @@ test('live appointments supports desktop, portrait, and landscape schedules with
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'An active staff membership is required.' })).toContainText('An active staff membership is required.');
   await expect(page.getByRole('status')).toContainText('Unavailable');
+});
+
+test('live client and pet roster supports staff intake, offline retention, and revocation', async ({ page }) => {
+  let addedPet = false;
+  let revoked = false;
+  await page.addInitScript(() => {
+    localStorage.setItem('sb-jdauajfcmsaamhgyklng-auth-token', JSON.stringify({
+      access_token: 'fixture.jwt.token',
+      refresh_token: 'fixture-refresh',
+      token_type: 'bearer',
+      expires_in: 3600,
+      expires_at: 1893456000,
+      user: {
+        id: 'aaaaaaaa-0000-4000-8000-000000000000',
+        aud: 'authenticated',
+        role: 'authenticated',
+        email: 'fixture@example.invalid',
+        app_metadata: {},
+        user_metadata: {},
+        created_at: '2026-11-09T00:00:00Z',
+      },
+    }));
+  });
+
+  await page.route('**/api/clients', async (route) => {
+    expect(route.request().headers().authorization).toBe('Bearer fixture.jwt.token');
+    if (route.request().method() === 'POST') {
+      addedPet = true;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          client: { id: 'cccccccc-1111-4111-8111-111111111112', name: 'Marcus Sterling', phone: '415-555-0144', email: null },
+          pet: { id: 'bbbbbbbb-1111-4111-8111-111111111112', client_id: 'cccccccc-1111-4111-8111-111111111112', name: 'Koda', breed: 'Samoyed', weight_lbs: '48.50' },
+        }),
+      });
+      return;
+    }
+    if (revoked) {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'An active staff membership is required.' }),
+      });
+      return;
+    }
+    const pets = [
+      {
+        id: 'bbbbbbbb-1111-4111-8111-111111111111',
+        client_id: 'cccccccc-1111-4111-8111-111111111111',
+        pet_name: 'Bello',
+        breed: 'Goldendoodle',
+        weight_lbs: 32.5,
+        client_name: 'Sophia Chen-Alvarez',
+        client_phone: '415-890-4829',
+        client_email: 'sophia@example.invalid',
+      },
+      ...(addedPet ? [{
+        id: 'bbbbbbbb-1111-4111-8111-111111111112',
+        client_id: 'cccccccc-1111-4111-8111-111111111112',
+        pet_name: 'Koda',
+        breed: 'Samoyed',
+        weight_lbs: 48.5,
+        client_name: 'Marcus Sterling',
+        client_phone: '415-555-0144',
+        client_email: null,
+      }] : []),
+    ];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        source: 'supabase_clients_pets',
+        business_id: '11111111-1111-4111-8111-111111111111',
+        as_of: '2026-11-09T14:00:00Z',
+        client_count: pets.length,
+        pet_count: pets.length,
+        pets,
+      }),
+    });
+  });
+
+  await page.goto('/dashboard/clients/live');
+  await expect(page.getByRole('heading', { name: 'Salon clients & pets' })).toBeVisible();
+  await expect(page.getByText('1 pet · 1 client · Source: Supabase')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Goldendoodle' })).toBeVisible();
+
+  await page.locator('summary').filter({ hasText: 'Register client & pet' }).click();
+  await page.getByLabel('Client name').fill('Marcus Sterling');
+  await page.getByLabel('Client phone').fill('415-555-0144');
+  await page.getByLabel('Pet name').fill('Koda');
+  await page.getByLabel('Breed').fill('Samoyed');
+  await page.getByLabel('Weight in lbs (optional)').fill('48.5');
+  await page.getByRole('button', { name: 'Save client & pet' }).click();
+
+  await expect(page.getByText('2 pets · 2 clients · Source: Supabase')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Samoyed' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: '48.5 lbs' })).toBeVisible();
+
+  revoked = true;
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'An active staff membership is required.' })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Roster unavailable');
 });
 

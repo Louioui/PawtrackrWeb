@@ -56,13 +56,17 @@ export function middleware(req: NextRequest) {
 
   // 3. Hardened Multi-Tenant & OWASP Security Headers (#45)
   const dataMode =
-    (pathname === '/api/reservations' || pathname === '/api/analytics') &&
+    (pathname === '/api/reservations' ||
+      pathname === '/api/analytics' ||
+      pathname === '/api/clients') &&
     (req.method === 'POST' || req.method === 'PATCH')
       ? 'authenticated-write'
       : pathname === '/api/analytics' ||
           pathname === '/api/reservations' ||
+          pathname === '/api/clients' ||
           pathname === '/dashboard/analytics/live' ||
-          pathname === '/dashboard/appointments/live'
+          pathname === '/dashboard/appointments/live' ||
+          pathname === '/dashboard/clients/live'
         ? 'authenticated-read'
         : pathname.startsWith('/portal/live')
           ? 'public-catalog'

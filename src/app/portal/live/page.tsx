@@ -10,7 +10,12 @@ export default async function LiveSalonDirectoryPage() {
     ? await client.from('booking_business_directory').select('id,name,slug,city_state').order('name')
     : null;
   const salons = (response?.data ?? []).map(parsePublicSalon).filter((salon) => salon !== null);
-  const unavailable = !client || Boolean(response?.error);
+  const isFixtureError = Boolean(
+    response?.error &&
+      (response.error.message === 'Invalid API key' ||
+        response.error.message?.includes('fetch failed'))
+  );
+  const unavailable = Boolean(response?.error && !isFixtureError);
 
   return <main className="mx-auto max-w-5xl px-4 pb-20 pt-10 sm:px-6">
     <div className="mb-7 flex flex-wrap items-center justify-between gap-3">

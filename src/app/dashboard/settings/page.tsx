@@ -19,17 +19,46 @@ import {
   BUSINESS_CONFIGS,
   TENANT_BESPOKE_ID,
 } from '@/lib/mock-tenant-data';
-import { BusinessConfig, ServiceAddon, ServicePackage } from '@/types/database';
+import { Business, BusinessConfig, ServiceAddon, ServicePackage } from '@/types/database';
 import { formatCurrency } from '@/lib/pos-math';
-import { hasDemoStoreConflict, loadUniversalStore, saveUniversalStore } from '@/lib/realtime-store';
+import {
+  hasDemoStoreConflict,
+  loadUniversalStore,
+  saveUniversalStore,
+  getStoreBusinesses,
+  loadDemoSession,
+} from '@/lib/realtime-store';
 
 export default function SalonSettingsCatalogBuilderPage() {
   const [activeBusinessId, setActiveBusinessId] =
     useState<string>(TENANT_BESPOKE_ID);
 
+  const [allBusinesses, setAllBusinesses] = useState<Business[]>(() =>
+    getStoreBusinesses(loadUniversalStore().configs)
+  );
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const store = loadUniversalStore();
+      setAllBusinesses(getStoreBusinesses(store.configs));
+      const params = new URLSearchParams(window.location.search);
+      const bizParam = params.get('business');
+      if (bizParam) {
+        setActiveBusinessId(bizParam);
+      } else {
+        const session = loadDemoSession();
+        if (session?.businessId) {
+          setActiveBusinessId(session.businessId);
+        }
+      }
+    }
+  }, []);
+
   const business =
-    BUSINESSES.find((b) => b.id === activeBusinessId) ?? BUSINESSES[0];
-  const initialConfig = BUSINESS_CONFIGS[business.id];
+    allBusinesses.find((b) => b.id === activeBusinessId) ??
+    BUSINESSES.find((b) => b.id === activeBusinessId) ??
+    BUSINESSES[0];
+  const initialConfig = BUSINESS_CONFIGS[business.id] ?? BUSINESS_CONFIGS[BUSINESSES[0].id];
 
   const [taxRate, setTaxRate] = useState<string>(
     String(initialConfig.tax_rate)
@@ -231,8 +260,8 @@ export default function SalonSettingsCatalogBuilderPage() {
             </p>
           </div>
 
-          <div className="flex gap-1.5 rounded-xl border border-white/[0.08] bg-obsidian-900 p-1.5">
-            {BUSINESSES.map((b) => (
+          <div className="flex flex-wrap gap-1.5 rounded-xl border border-white/[0.08] bg-obsidian-900 p-1.5">
+            {allBusinesses.map((b) => (
               <button
                 key={b.id}
                 type="button"

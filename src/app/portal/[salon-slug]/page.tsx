@@ -26,6 +26,9 @@ import {
   loadUniversalStore,
   saveUniversalStore,
   subscribeUniversalStore,
+  resolveStoreTenantBySlug,
+  getStoreBusinesses,
+  loadDemoSession,
 } from '@/lib/realtime-store';
 
 const TIME_SLOTS = [
@@ -45,7 +48,11 @@ export default function SalonBookingPortalPage({
   const resolvedParams = use(params);
   const salonSlug = resolvedParams['salon-slug'] || 'bespoke-grooming';
 
-  const tenant = useMemo(() => getTenantBundleBySlug(salonSlug), [salonSlug]);
+  const [activeStore, setActiveStore] = useState(() => loadUniversalStore());
+  const tenant = useMemo(() => {
+    return resolveStoreTenantBySlug(activeStore, salonSlug);
+  }, [activeStore, salonSlug]);
+
   const { business, config: bundledConfig, staff } = tenant;
   const [storedConfig, setStoredConfig] = useState<BusinessConfig | null>(null);
   const [scheduledVisits, setScheduledVisits] = useState<Visit[]>(INITIAL_VISITS);
@@ -120,6 +127,7 @@ export default function SalonBookingPortalPage({
 
   useEffect(() => {
     const applyCatalog = (store: ReturnType<typeof loadUniversalStore>) => {
+      setActiveStore(store);
       setScheduledVisits(store.visits);
       const candidate = store.configs[business.id];
       if (candidate?.business_id === business.id &&
@@ -131,6 +139,31 @@ export default function SalonBookingPortalPage({
     applyCatalog(loadUniversalStore());
     return subscribeUniversalStore(applyCatalog, business.id, undefined, 60_000);
   }, [business.id]);
+
+  useEffect(() => {
+    const session = loadDemoSession();
+    if (session?.role === 'client') {
+      if (session.name) setParentName(session.name);
+      if (session.email) setParentEmail(session.email);
+      const currentStore = loadUniversalStore();
+      const myClient = currentStore.clients.find(
+        (c) => c.id === session.clientId || c.email === session.email
+      );
+      if (myClient && myClient.phone) setParentPhone(myClient.phone);
+      const myPet = currentStore.pets.find(
+        (p) => p.id === session.petId || (myClient && p.client_id === myClient.id)
+      );
+      if (myPet) {
+        setPetName(myPet.name);
+        setPetBreed(myPet.breed);
+        setPetWeight(String(myPet.weight_lbs));
+        if (myPet.behavior_tags && myPet.behavior_tags.length > 0) {
+          setDisclosedTags(myPet.behavior_tags);
+        }
+        if (myPet.behavior_notes) setCoatNotes(myPet.behavior_notes);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     setSelectedPackageId((current) => config.custom_settings.packages.some((item) => item.id === current)
@@ -328,9 +361,9 @@ export default function SalonBookingPortalPage({
             pawtrackr.live/{salonSlug}
           </code>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-zinc-400">Preview another salon tenant:</span>
-          {BUSINESSES.map((b) => (
+          {getStoreBusinesses(activeStore.configs).map((b) => (
             <Link
               key={b.id}
               href={`/portal/${b.slug}`}

@@ -74,6 +74,8 @@ export interface BusinessConfig {
       open: string;
       close: string;
     };
+    business_profile?: Business;
+    staff_roster?: StaffMember[];
   };
 }
 

@@ -23,9 +23,11 @@ export async function POST(req: NextRequest) {
     }
     const body = payload as Record<string, unknown>;
     const businessId = text(body.business_id, 80);
-    const business = BUSINESSES.find((item) => item.id === businessId);
     const ledger = readServerLedger();
     const storedConfig = ledger.configs[businessId];
+    const business =
+      BUSINESSES.find((item) => item.id === businessId) ??
+      storedConfig?.custom_settings?.business_profile;
     const config = storedConfig && Array.isArray(storedConfig.custom_settings?.packages) &&
       Array.isArray(storedConfig.custom_settings?.addons)
       ? storedConfig : BUSINESS_CONFIGS[businessId];
@@ -39,7 +41,11 @@ export async function POST(req: NextRequest) {
       ? config.custom_settings.addons.filter((addon) => addonIds.includes(addon.id))
       : [];
     const staffId = text(body.staff_id, 100);
-    const staff = STAFF_MEMBERS.find((item) => item.id === staffId && item.business_id === businessId && item.role !== 'front_desk');
+    const staffPool = Array.isArray(storedConfig?.custom_settings?.staff_roster) &&
+      storedConfig.custom_settings.staff_roster.length > 0
+      ? storedConfig.custom_settings.staff_roster
+      : STAFF_MEMBERS;
+    const staff = staffPool.find((item) => item.id === staffId && item.business_id === businessId && item.role !== 'front_desk');
     const clientName = text(body.client_name);
     const clientPhone = text(body.client_phone, 40);
     const clientEmail = text(body.client_email, 200);
@@ -76,20 +82,75 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
-    const clientId = randomUUID();
+    const requestedClientId = text(body.client_id, 80);
+    const existingClient = requestedClientId
+      ? ledger.clients.find((c) => c.id === requestedClientId && c.business_id === businessId)
+      : undefined;
+    const clientId = existingClient?.id ?? randomUUID();
     const client: Client = {
-      id: clientId, business_id: businessId, name: clientName, phone: clientPhone,
-      email: clientEmail, address: '', loyalty_points: 0, lifetime_spend: 0, created_at: now,
+      id: clientId,
+      business_id: businessId,
+      name: clientName,
+      phone: clientPhone,
+      email: clientEmail,
+      address: existingClient?.address ?? business.city_state,
+      loyalty_points: existingClient?.loyalty_points ?? 0,
+      lifetime_spend: existingClient?.lifetime_spend ?? 0,
+      created_at: existingClient?.created_at ?? now,
     };
-    const makePet = (name: string, breed: string, weight: number, behaviorTags: BehaviorTag[], behaviorNotes: string): Pet => ({
-      id: randomUUID(), business_id: businessId, client_id: clientId, name, species: 'Canine', breed,
-      weight_lbs: weight, age_years: 0, coat_type: 'Not recorded', rabies_verified: false,
-      behavior_notes: behaviorNotes, behavior_tags: behaviorTags, avatar_url: '',
-      weight_history: [], photo_gallery: [],
+    const requestedPetId = text(body.pet_id, 80);
+    const existingPet = requestedPetId
+      ? ledger.pets.find((p) => p.id === requestedPetId && p.client_id === clientId && p.business_id === businessId)
+      : undefined;
+    const bookingDateStr = match![1];
+    const makePet = (
+      name: string,
+      breed: string,
+      weight: number,
+      behaviorTags: BehaviorTag[],
+      behaviorNotes: string,
+      existing?: Pet
+    ): Pet => ({
+      id: existing?.id ?? randomUUID(),
+      business_id: businessId,
+      client_id: clientId,
+      name,
+      species: existing?.species ?? 'Canine',
+      breed,
+      weight_lbs: weight,
+      age_years: existing?.age_years ?? 2,
+      coat_type: existing?.coat_type ?? 'Combination Coat',
+      rabies_verified: existing?.rabies_verified ?? true,
+      behavior_notes: behaviorNotes,
+      behavior_tags: behaviorTags,
+      avatar_url:
+        existing?.avatar_url ||
+        'https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?auto=format&fit=crop&w=600&q=80',
+      weight_history: existing?.weight_history?.length
+        ? existing.weight_history
+        : [{ date: bookingDateStr, weight_lbs: weight }],
+      photo_gallery: existing?.photo_gallery ?? [],
     });
-    const firstPet = makePet(petName, petBreed, body.pet_weight_lbs as number, tags as BehaviorTag[], notes);
+    const firstPet = makePet(
+      petName,
+      petBreed,
+      body.pet_weight_lbs as number,
+      tags as BehaviorTag[],
+      notes,
+      existingPet
+    );
     const pets = [firstPet];
-    if (secondPetName) pets.push(makePet(secondPetName, secondPetBreed, body.second_pet_weight_lbs as number, [], ''));
+    if (secondPetName) {
+      pets.push(
+        makePet(
+          secondPetName,
+          secondPetBreed,
+          body.second_pet_weight_lbs as number,
+          [],
+          ''
+        )
+      );
+    }
 
     const firstPriceCents = toCents(servicePackage.price) + selectedAddons.reduce((sum, addon) => sum + toCents(addon.price), 0) -
       (body.join_vip_club === true ? Math.round(toCents(servicePackage.price) * 0.15) : 0);
@@ -110,8 +171,11 @@ export async function POST(req: NextRequest) {
     }
     const totalDollars = fromCents(firstPriceCents + secondPriceCents);
 
+    const newPetIds = new Set(pets.map((p) => p.id));
     writeServerLedger({
-      clients: [client, ...ledger.clients], pets: [...pets, ...ledger.pets], visits: [...visits, ...ledger.visits],
+      clients: [client, ...ledger.clients.filter((c) => c.id !== client.id)],
+      pets: [...pets, ...ledger.pets.filter((p) => !newPetIds.has(p.id))],
+      visits: [...visits, ...ledger.visits],
     });
 
     return NextResponse.json({

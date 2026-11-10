@@ -54,6 +54,9 @@ import {
   loadUniversalStore,
   saveUniversalStore,
   subscribeUniversalStore,
+  getStoreBusinesses,
+  getStoreStaff,
+  loadDemoSession,
 } from '@/lib/realtime-store';
 
 const STATUS_STEPS: { id: VisitStatus; label: string; color: string }[] = [
@@ -109,6 +112,19 @@ export default function DashboardCommandCenter() {
     setVisits(hydrated.visits);
     setTransactions(hydrated.transactions);
     setConfigs(hydrated.configs);
+
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const bizParam = params.get('business');
+      if (bizParam) {
+        setActiveBusinessId(bizParam);
+      } else {
+        const session = loadDemoSession();
+        if (session?.businessId) {
+          setActiveBusinessId(session.businessId);
+        }
+      }
+    }
 
     return subscribeUniversalStore((updated) => {
       setClients(updated.clients);
@@ -178,18 +194,22 @@ export default function DashboardCommandCenter() {
   const [walkInTags, setWalkInTags] = useState<BehaviorTag[]>(['extra_care']);
 
   // Current Tenant Partition
+  const allBusinesses = useMemo(
+    () => getStoreBusinesses(configs),
+    [configs]
+  );
   const activeBusiness = useMemo(
     () =>
-      BUSINESSES.find((b) => b.id === activeBusinessId) ?? BUSINESSES[0],
-    [activeBusinessId]
+      allBusinesses.find((b) => b.id === activeBusinessId) ?? allBusinesses[0] ?? BUSINESSES[0],
+    [activeBusinessId, allBusinesses]
   );
   const activeConfig = useMemo(
-    () => configs[activeBusiness.id] ?? BUSINESS_CONFIGS[activeBusiness.id],
+    () => configs[activeBusiness.id] ?? BUSINESS_CONFIGS[activeBusiness.id] ?? BUSINESS_CONFIGS[BUSINESSES[0].id],
     [activeBusiness.id, configs]
   );
   const tenantStaff = useMemo(
-    () => STAFF_MEMBERS.filter((s) => s.business_id === activeBusiness.id),
-    [activeBusiness.id]
+    () => getStoreStaff(configs, activeBusiness.id),
+    [activeBusiness.id, configs]
   );
   const tenantVisits = useMemo(
     () => visits.filter((v) => v.business_id === activeBusiness.id),
@@ -943,7 +963,7 @@ export default function DashboardCommandCenter() {
               Switch Isolated Tenant (RLS Demo)
             </div>
             <div className="flex gap-1.5">
-              {BUSINESSES.map((biz) => {
+              {allBusinesses.map((biz) => {
                 const active = biz.id === activeBusiness.id;
                 return (
                   <button

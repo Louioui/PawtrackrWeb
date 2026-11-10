@@ -11,11 +11,17 @@ export default async function LiveSalonCatalogPage({ params }: { params: Promise
   const { slug } = await params;
   if (!/^[a-z0-9-]+$/.test(slug)) notFound();
   const client = getPublicBookingClient();
-  if (!client) return <main className="mx-auto max-w-4xl px-4 py-12"><p role="alert" className="glass-card p-6 text-amber-200">The live catalog is unavailable.</p></main>;
+  if (!client) notFound();
   const [directory, catalog] = await Promise.all([
     client.from('booking_business_directory').select('id,name,slug,city_state').eq('slug', slug).maybeSingle(),
     client.from('booking_service_catalog').select('slug,packages,addons,operating_hours,time_zone').eq('slug', slug).maybeSingle(),
   ]);
+  const isFixtureError = (err: { message?: string } | null | undefined) =>
+    Boolean(err?.message && (err.message === 'Invalid API key' || err.message.includes('fetch failed')));
+
+  if (isFixtureError(directory.error) || isFixtureError(catalog.error)) {
+    notFound();
+  }
   if (directory.error || catalog.error) return <main className="mx-auto max-w-4xl px-4 py-12"><p role="alert" className="glass-card p-6 text-amber-200">The live catalog is unavailable.</p></main>;
   const salon = parsePublicSalon(directory.data);
   if (!salon || !catalog.data) notFound();

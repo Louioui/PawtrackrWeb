@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { TopNav } from '@/components/TopNav';
 import { SupportAndTourWidget } from '@/components/SupportAndTourWidget';
+import { DemoSwitcherBar } from '@/components/DemoSwitcherBar';
 
 export const metadata: Metadata = {
   title: 'Pawtrackr Web — Pet Grooming Workspace Demo',
@@ -27,6 +28,7 @@ export default function RootLayout({
         <TopNav />
         <main className="relative">{children}</main>
         <SupportAndTourWidget />
+        <DemoSwitcherBar />
       </body>
     </html>
   );

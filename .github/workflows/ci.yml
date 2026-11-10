@@ -2,9 +2,9 @@ name: Pawtrackr Web Enterprise CI/CD (#47)
 
 on:
   push:
-    branches: [main]
+    branches: [Master]
   pull_request:
-    branches: [main]
+    branches: [Master]
 
 jobs:
   verify-and-build:

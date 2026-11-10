@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { bookingFitsStaffShifts, isWithinSalonOperatingHours, parseClockMinute, salonLocalDate, validSalonTimeZone } from '@/lib/live-reservations';
+import { bookingFitsStaffShifts, catalogPriceCents, centsToDecimalString, isWithinSalonOperatingHours, parseClockMinute, salonLocalDate, validSalonTimeZone } from '@/lib/live-reservations';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +11,14 @@ const reply = (body: unknown, status: number) => NextResponse.json(body, {
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const timestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d{1,3})?)?(?:Z|[+-]\d\d:\d\d)$/;
 const statuses = new Set(['booked', 'dropped_off', 'bathing', 'styling', 'ready', 'completed', 'cancelled']);
+
+// Raised by private.enforce_visit_availability (migration 0016), the database's
+// final check on salon hours and groomer shifts.
+const availabilityErrors: Record<string, string> = {
+  PW001: 'Reservation time is outside configured salon operating hours.',
+  PW002: 'The groomer is unavailable during that shift or time off.',
+  PW003: 'The salon time zone or operating hours are not configured for reservations.',
+};
 
 export async function GET(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -104,7 +112,7 @@ export async function GET(req: NextRequest) {
     if (typeof pkg.id !== 'string' || !pkg.id.trim() || pkg.id.length > 100 ||
         typeof pkg.name !== 'string' || !pkg.name.trim() || pkg.name.length > 200 ||
         typeof pkg.durationMinutes !== 'number' || !Number.isInteger(pkg.durationMinutes) || pkg.durationMinutes < 1 || pkg.durationMinutes > 1440 ||
-        typeof pkg.price !== 'number' || !Number.isFinite(pkg.price) || pkg.price < 0 || Math.round(pkg.price * 100) !== pkg.price * 100) {
+        catalogPriceCents(pkg.price) === null) {
       return [];
     }
     return [{ id: pkg.id, name: pkg.name, duration_minutes: pkg.durationMinutes }];
@@ -195,9 +203,10 @@ export async function POST(req: NextRequest) {
   const service = packages.find((item): item is Record<string, unknown> =>
     !!item && typeof item === 'object' && !Array.isArray(item) && (item as Record<string, unknown>).id === package_id);
   const buffer = settings?.booking_buffer_mins;
+  const priceCents = catalogPriceCents(service?.price);
   if (!service || typeof service.name !== 'string' || !service.name || service.name.length > 200 ||
       typeof service.durationMinutes !== 'number' || !Number.isInteger(service.durationMinutes) || service.durationMinutes < 1 || service.durationMinutes > 1440 ||
-      typeof service.price !== 'number' || !Number.isFinite(service.price) || service.price < 0 || Math.round(service.price * 100) !== service.price * 100 ||
+      priceCents === null ||
       config.currency !== 'USD' || typeof buffer !== 'number' || !Number.isInteger(buffer) || buffer < 0 || buffer > 240) {
     return reply({ error: 'The selected service is not configured for reservations.' }, 422);
   }
@@ -223,12 +232,13 @@ export async function POST(req: NextRequest) {
     status: 'booked',
     booking_source: 'walk_in',
     service_package: service.name,
-    total_amount: service.price.toFixed(2),
+    total_amount: centsToDecimalString(priceCents),
     scheduled_time: start.toISOString(),
     duration_minutes: service.durationMinutes,
     booking_buffer_minutes: buffer,
   }).select('id,scheduled_time,reservation_end,status').single();
   if (error?.code === '23P01') return reply({ error: 'That groomer is already booked during this time.' }, 409);
+  if (error?.code && availabilityErrors[error.code]) return reply({ error: availabilityErrors[error.code] }, 422);
   if (error || !visit) return reply({ error: 'The reservation could not be saved.' }, 502);
   return reply({ reservation: visit }, 201);
 }
@@ -278,6 +288,7 @@ export async function PATCH(req: NextRequest) {
     .select('id,scheduled_time,reservation_end,status')
     .maybeSingle();
   if (error?.code === '23P01') return reply({ error: 'That groomer is already booked during this time.' }, 409);
+  if (error?.code && availabilityErrors[error.code]) return reply({ error: availabilityErrors[error.code] }, 422);
   if (error) return reply({ error: 'The reservation status could not be updated.' }, 502);
   if (!visit) return reply({ error: 'Reservation not found for this salon.' }, 404);
   return reply({ reservation: visit }, 200);

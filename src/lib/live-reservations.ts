@@ -61,6 +61,21 @@ const dateTime = (value: unknown): value is string => typeof value === 'string' 
   /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value) && Number.isFinite(Date.parse(value));
 const label = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
 
+// Catalog prices are stored as JSON dollars. Binary floats cannot represent most
+// cent values exactly (19.99 * 100 === 1998.9999999999998), so an exact-equality
+// check rejects ordinary prices. Convert once to integer cents and tolerate only
+// representation error; a real sub-cent price such as 42.555 is still rejected.
+export function catalogPriceCents(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 10000) return null;
+  const scaled = value * 100;
+  const cents = Math.round(scaled);
+  return Math.abs(scaled - cents) < 1e-6 ? cents : null;
+}
+
+export function centsToDecimalString(cents: number): string {
+  return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
+}
+
 export function parseClockMinute(value: unknown): number | null {
   if (typeof value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return null;
   const [hours, minutes] = value.split(':').map(Number);

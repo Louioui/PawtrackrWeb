@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-temp_dir=$(mktemp -d /tmp/pawtrackr-migrations.XXXXXX)
+# The socket path must stay short, so default to /tmp rather than $TMPDIR.
+temp_dir=$(mktemp -d "${PAWTRACKR_TEST_TMPDIR:-/tmp}/pawtrackr-migrations.XXXXXX")
 cleanup() {
   pg_ctl -D "$temp_dir/data" stop -m immediate >/dev/null 2>&1 || true
   rm -r "$temp_dir"
@@ -71,6 +72,10 @@ DO $$ BEGIN
     RAISE EXCEPTION 'Public booking catalog did not publish salon time zone';
   END IF;
 END $$;
+-- Reservations need usable hours; the catalog fixture above replaced them.
+UPDATE public.business_configs
+SET custom_settings = '{"packages":[{"name":"Bath"}],"operating_hours":{"open":"08:00","close":"18:00"},"booking_buffer_mins":15}'::jsonb
+WHERE business_id = '11111111-1111-4111-8111-111111111111';
 INSERT INTO public.staff_members (business_id, auth_user_id, name, role, is_active) VALUES
   ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-0000-4000-8000-000000000000', 'A Owner', 'owner', true),
   ('22222222-2222-4222-8222-222222222222', 'bbbbbbbb-0000-4000-8000-000000000000', 'B Owner', 'owner', false);
@@ -259,5 +264,134 @@ DO $$ BEGIN
     RAISE EXCEPTION 'Anonymous photo access is allowed';
   END IF;
 END $$;
+RESET ROLE;
+
+-- 0016: salon operating hours and groomer shifts are enforced by the database.
+CREATE FUNCTION pg_temp.expect_visit(label text, starts timestamptz, minutes integer, groomer uuid, expected text)
+RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE got text := 'ok';
+BEGIN
+  BEGIN
+    INSERT INTO public.visits (business_id, client_id, pet_id, staff_id,
+      service_package, total_amount, scheduled_time, duration_minutes)
+    VALUES ('11111111-1111-4111-8111-111111111111',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      (SELECT id FROM public.pets WHERE name = 'Valid Pet'), groomer,
+      label, 20, starts, minutes);
+  EXCEPTION WHEN OTHERS THEN got := SQLSTATE;
+  END;
+  IF got <> expected THEN
+    RAISE EXCEPTION 'Availability case "%" returned % (expected %)', label, got, expected;
+  END IF;
+END $fn$;
+DO $$
+DECLARE second_groomer constant uuid := 'aaaaaaaa-1111-4111-8111-111111111111';
+DECLARE salon constant uuid := '11111111-1111-4111-8111-111111111111';
+DECLARE moved text;
+BEGIN
+  -- Default settings: 08:00-18:00, no zone (UTC).
+  PERFORM pg_temp.expect_visit('Before open', '2030-02-01 07:00:00+00', 30, second_groomer, 'PW001');
+  PERFORM pg_temp.expect_visit('Runs past close', '2030-02-01 17:30:00+00', 60, second_groomer, 'PW001');
+  PERFORM pg_temp.expect_visit('Ends at close', '2030-02-01 17:00:00+00', 60, second_groomer, 'ok');
+  PERFORM pg_temp.expect_visit('Unassigned outside hours', '2030-02-01 06:00:00+00', 30, NULL, 'PW001');
+
+  -- History is never rejected.
+  INSERT INTO public.visits (business_id, client_id, pet_id, staff_id,
+    service_package, total_amount, scheduled_time, duration_minutes, status)
+  VALUES (salon, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    (SELECT id FROM public.pets WHERE name = 'Valid Pet'), second_groomer,
+    'Imported history', 20, '2020-02-01 03:00:00+00', 30, 'completed');
+
+  -- Hours follow the salon's zone: 09:00 PST is 17:00 UTC.
+  UPDATE public.business_configs SET custom_settings = custom_settings || '{"time_zone":"America/Los_Angeles"}'
+    WHERE business_id = salon;
+  PERFORM pg_temp.expect_visit('09:00 UTC is 01:00 local', '2030-02-04 09:00:00+00', 30, second_groomer, 'PW001');
+  PERFORM pg_temp.expect_visit('09:00 local', '2030-02-04 17:00:00+00', 30, second_groomer, 'ok');
+
+  -- A scheduled shift narrows that groomer's day; others keep salon hours.
+  INSERT INTO public.staff_shifts (business_id, staff_id, shift_date, start_time, end_time, assigned_station, status)
+  VALUES (salon, second_groomer, '2030-02-05', '09:00', '11:00', 'Bay 1', 'scheduled');
+  PERFORM pg_temp.expect_visit('After shift', '2030-02-05 20:00:00+00', 30, second_groomer, 'PW002');
+  PERFORM pg_temp.expect_visit('Spills past shift end', '2030-02-05 18:45:00+00', 30, second_groomer, 'PW002');
+  PERFORM pg_temp.expect_visit('Inside shift', '2030-02-05 17:15:00+00', 60, second_groomer, 'ok');
+  PERFORM pg_temp.expect_visit('Other groomer same time', '2030-02-05 20:00:00+00', 30,
+    (SELECT id FROM public.staff_members WHERE auth_user_id = 'aaaaaaaa-0000-4000-8000-000000000000'), 'ok');
+
+  -- Time off blocks the whole local day even beside a scheduled shift.
+  INSERT INTO public.staff_shifts (business_id, staff_id, shift_date, start_time, end_time, assigned_station, status)
+  VALUES (salon, second_groomer, '2030-02-06', '09:00', '17:00', 'Bay 1', 'scheduled'),
+         (salon, second_groomer, '2030-02-06', '09:00', '17:00', 'Bay 1', 'time_off');
+  PERFORM pg_temp.expect_visit('Time off', '2030-02-06 18:00:00+00', 30, second_groomer, 'PW002');
+
+  -- A completed shift row does not grant availability.
+  INSERT INTO public.staff_shifts (business_id, staff_id, shift_date, start_time, end_time, assigned_station, status)
+  VALUES (salon, second_groomer, '2030-02-07', '09:00', '17:00', 'Bay 1', 'completed');
+  PERFORM pg_temp.expect_visit('Completed shift only', '2030-02-07 18:00:00+00', 30, second_groomer, 'PW002');
+
+  -- 02:30 does not exist on 2030-03-10 in Los Angeles, so the shift is unusable.
+  INSERT INTO public.staff_shifts (business_id, staff_id, shift_date, start_time, end_time, assigned_station, status)
+  VALUES (salon, second_groomer, '2030-03-10', '02:30', '12:00', 'Bay 1', 'scheduled');
+  PERFORM pg_temp.expect_visit('Skipped DST shift start', '2030-03-10 16:00:00+00', 30, second_groomer, 'PW002');
+  IF private.salon_local_instant('2030-03-10', '02:30', 'America/Los_Angeles') IS NOT NULL
+     OR private.salon_local_instant('2030-11-03', '01:30', 'America/Los_Angeles') IS NOT NULL
+     OR private.salon_local_instant('2030-11-03', '09:00', 'America/Los_Angeles')
+        <> '2030-11-03 17:00:00+00'::timestamptz
+     OR private.salon_local_instant('2030-11-03', '9:00', 'America/Los_Angeles') IS NOT NULL THEN
+    RAISE EXCEPTION 'Salon local instant resolution is wrong around daylight-saving changes';
+  END IF;
+
+  -- Narrowing hours later must not strand a visit already on the books,
+  -- but moving or reactivating one is rechecked.
+  UPDATE public.business_configs
+    SET custom_settings = jsonb_set(custom_settings, '{operating_hours}', '{"open":"12:00","close":"13:00"}')
+    WHERE business_id = salon;
+  UPDATE public.visits SET status = 'dropped_off' WHERE service_package = '09:00 local';
+  UPDATE public.visits SET status = 'completed' WHERE service_package = '09:00 local';
+  BEGIN
+    UPDATE public.visits SET scheduled_time = '2030-02-04 18:00:00+00' WHERE service_package = 'Inside shift';
+    RAISE EXCEPTION 'Reschedule outside narrowed hours was accepted';
+  EXCEPTION WHEN SQLSTATE 'PW001' THEN NULL;
+  END;
+  BEGIN
+    UPDATE public.visits SET status = 'booked' WHERE service_package = '09:00 local';
+    RAISE EXCEPTION 'Reactivation outside narrowed hours was accepted';
+  EXCEPTION WHEN SQLSTATE 'PW001' THEN NULL;
+  END;
+
+  -- Unusable settings reject instead of guessing.
+  UPDATE public.business_configs SET custom_settings = custom_settings || '{"time_zone":"Mars/Phobos"}'
+    WHERE business_id = salon;
+  PERFORM pg_temp.expect_visit('Unknown zone', '2030-02-08 20:15:00+00', 30, second_groomer, 'PW003');
+  UPDATE public.business_configs SET custom_settings = (custom_settings - 'operating_hours') || '{"time_zone":"UTC"}'
+    WHERE business_id = salon;
+  PERFORM pg_temp.expect_visit('Missing hours', '2030-02-08 12:15:00+00', 30, second_groomer, 'PW003');
+  UPDATE public.business_configs
+    SET custom_settings = custom_settings || '{"time_zone":"America/Los_Angeles","operating_hours":{"open":"08:00","close":"18:00"}}'
+    WHERE business_id = salon;
+END $$;
+
+-- A signed-in staff member writing visits directly is held to the same rules,
+-- and cannot call the private helpers.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-4000-8000-000000000000', false);
+DO $$ BEGIN
+  BEGIN
+    INSERT INTO public.visits (business_id, client_id, pet_id, staff_id,
+      service_package, total_amount, scheduled_time, duration_minutes)
+    VALUES ('11111111-1111-4111-8111-111111111111',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      (SELECT id FROM public.pets WHERE name = 'Valid Pet'),
+      'aaaaaaaa-1111-4111-8111-111111111111',
+      'Direct write outside shift', 20, '2030-02-05 21:00:00+00', 30);
+    RAISE EXCEPTION 'Direct authenticated write bypassed the groomer shift';
+  EXCEPTION WHEN SQLSTATE 'PW002' THEN NULL;
+  END;
+  BEGIN
+    PERFORM private.salon_local_instant('2030-02-05', '09:00', 'UTC');
+    RAISE EXCEPTION 'Authenticated role can call private availability helpers';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END $$;
+RESET ROLE;
 SQL
 printf 'Migration execution and basic tenant/RPC checks passed.\n'

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bookingFitsStaffShifts, isWithinSalonOperatingHours, isWithinUtcOperatingHours, liveReservationCsv, normalizeLiveReservationDay, resolveSalonLocalTime, salonLocalDate, validateStaffShiftDraft } from '../src/lib/live-reservations.ts';
+import { bookingFitsStaffShifts, catalogPriceCents, centsToDecimalString, isWithinSalonOperatingHours, isWithinUtcOperatingHours, liveReservationCsv, normalizeLiveReservationDay, resolveSalonLocalTime, salonLocalDate, validateStaffShiftDraft } from '../src/lib/live-reservations.ts';
+import { validatePackagesList } from '../src/lib/live-settings.ts';
 
 test('shift draft requires a real groomer, local interval, and station', () => {
   const draft = { staff_id: 'cccccccc-1111-4111-8111-111111111111', shift_date: '2026-11-09',
@@ -153,4 +154,29 @@ test('normalizes optional booking options and rejects malformed catalog entries'
     ...day([]),
     booking_options: { pets: [], groomers: [], services: [{ id: 'bad', name: 'Bad', duration_minutes: 0 }] },
   }, '2026-12-09'));
+});
+
+test('catalog prices convert to exact cents without rejecting ordinary cent values', () => {
+  // Each of these fails a naive `Math.round(p * 100) === p * 100` check.
+  for (const [price, cents] of [[19.99, 1999], [8.95, 895], [64.35, 6435], [1.15, 115], [0.07, 7], [35.55, 3555]]) {
+    assert.equal(catalogPriceCents(price), cents);
+  }
+  assert.equal(catalogPriceCents(0), 0);
+  assert.equal(catalogPriceCents(125.5), 12550);
+  assert.equal(catalogPriceCents(10000), 1000000);
+  for (const bad of [42.555, 19.999, -1, 10000.01, NaN, Infinity, '19.99', null, undefined]) {
+    assert.equal(catalogPriceCents(bad), null);
+  }
+  assert.equal(centsToDecimalString(1999), '19.99');
+  assert.equal(centsToDecimalString(7), '0.07');
+  assert.equal(centsToDecimalString(12550), '125.50');
+});
+
+test('every cent price the settings catalog accepts is bookable', () => {
+  for (let cents = 0; cents <= 1000000; cents += 1) {
+    const price = cents / 100;
+    const saved = validatePackagesList([{ id: 'svc', name: 'Service', price, durationMinutes: 60 }]);
+    assert.ok(saved, `settings rejected ${price}`);
+    assert.equal(catalogPriceCents(saved[0].price), cents, `reservations rejected ${price}`);
+  }
 });

@@ -9,7 +9,7 @@ npm ci
 npm run dev
 ```
 
-The development app uses an on-disk demo ledger in `.pawtrackr-data/`. Set `PAWTRACKR_DEMO_DATA_DIR` to a separate directory for isolated QA. In a production build, the demo APIs for store writes, booking, checkout, billing, and Stripe webhooks return HTTP 503. The UI remains a demo preview.
+The development app uses an on-disk demo ledger in `.pawtrackr-data/`. Set `PAWTRACKR_DEMO_DATA_DIR` to a separate directory for isolated QA. In a production build, the legacy demo APIs for store writes, demo booking, demo checkout, and preview billing return HTTP 503. The separate live staff, public-booking, onboarding, payment-intent, and verified Stripe-webhook routes fail closed when their required configuration is absent.
 
 ## Verify
 
@@ -18,9 +18,12 @@ npm test
 npm run typecheck
 npm run test:migrations
 npm run test:e2e
+npm run check:production-env
 ```
 
-`npm test` checks the app's pure data and math code plus a static architecture inventory. `test:migrations` applies the SQL to a temporary local PostgreSQL database with a minimal Supabase auth/storage fixture and tests selected tenant boundaries. `test:e2e` builds the app and runs browser workflows in Chrome. A dedicated Supabase project now has the schema, but these checks do not establish real payment settlement or complete production authorization.
+`npm test` checks the app's pure data and math code, production-configuration validator, and static architecture inventory. `test:migrations` applies the SQL to a temporary PostgreSQL database with a minimal Supabase auth/storage fixture and tests selected tenant boundaries. `test:e2e` builds the app and runs browser workflows in Chrome while forcibly replacing any inherited Supabase configuration with a project-ref-shaped `.invalid` host and non-secret test key; use `test:e2e:configured` only when intentionally testing with the current environment. `check:production-env` validates live URLs and credential shapes without printing their values; it is expected to fail until every required deployment secret is supplied. `npm run release:check` combines that configuration gate with the full build, migration, and isolated browser suites. A dedicated Supabase project has the schema and a verified anonymous booking path, but these checks do not establish real Stripe settlement or complete production authorization.
+
+The GitHub Actions workflow runs three independent gates on pushes and pull requests to `Master`: unit/type/build verification, all SQL migrations against an isolated PostgreSQL runtime, and all browser/responsive/offline/accessibility scenarios against a project-ref-shaped `.invalid` Supabase host. CI does not use or mutate the hosted Pawtrackr database.
 
 ## What works in the demo
 
@@ -32,4 +35,4 @@ npm run test:e2e
 
 ## Production gates
 
-A dedicated Pawtrackr Supabase project exists with the multi-tenant schema (`0001`–`0015` applied to the hosted project; `0001`–`0019` in `supabase/migrations/` verified in local PostgreSQL). Authenticated staff endpoints and views exist for recorded checkout analytics (`/dashboard/analytics/live`), UTC daily appointments (`/dashboard/appointments/live`), client/pet intake and weight logging (`/dashboard/clients/live`), and live catalog, operating-hours, and groomer management (`/dashboard/settings/live`); Owner sign-up with salon provisioning (`/signup`), public online booking on `/portal/live/[slug]`, a salon-local staff calendar, and Stripe-verified payment settlement are built and verified locally, but migrations `0016`–`0019` are not applied to the hosted project and those flows have not been run against real Auth or Stripe. Pet-parent accounts, staff invitations, a card-entry UI, and private photo delivery are still required. The current production API boundary deliberately rejects demo writes while those pieces are absent. See [build status](docs/build-status.md), [production data boundary](docs/production-data-boundary.md), [live appointments design contract](docs/live-appointments-design-contract.md), and [analytics visualization contract](docs/analytics-visualization.md) for the evidence and remaining work.
+A dedicated Pawtrackr Supabase project exists with the complete multi-tenant schema (`0001`–`0022` applied to the hosted project and verified in temporary PostgreSQL). Authenticated staff endpoints and views exist for recorded checkout analytics (`/dashboard/analytics/live`), salon-local appointments (`/dashboard/appointments/live`), client/pet intake and weight logging (`/dashboard/clients/live`), and live catalog, operating-hours, groomer, and shift management (`/dashboard/settings/live`). Owner sign-up with salon provisioning (`/signup`), public online booking on `/portal/live/[slug]`, database-enforced availability, and Stripe-verified payment settlement are built. The hosted schema, grants, wrappers, triggers, foreign-key indexes, and advisor state are verified; a temporary hosted salon also proved anonymous availability, successful booking, occupied-window removal, and duplicate-slot rejection through the real Data API before every fixture was deleted. Owner onboarding still needs a real hosted Auth provisioning test, and Stripe has not been exercised. Pet-parent accounts, staff invitations, a card-entry UI, subscription billing, and private photo delivery are still required. The current production API boundary deliberately rejects demo writes while those pieces are absent. See [build status](docs/build-status.md), [production data boundary](docs/production-data-boundary.md), [live appointments design contract](docs/live-appointments-design-contract.md), and [analytics visualization contract](docs/analytics-visualization.md) for the evidence and remaining work.

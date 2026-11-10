@@ -11,6 +11,7 @@ import {
   normalizeLiveSalonSettings,
 } from '@/lib/live-settings';
 import ShiftEditor from './ShiftEditor';
+import { SubscriptionCard } from '@/components/SubscriptionCard';
 
 export default function LiveSalonSettingsPage() {
   const [email, setEmail] = useState('');
@@ -406,6 +407,7 @@ export default function LiveSalonSettingsPage() {
           )}
         </section>
         <ShiftEditor settings={settings} />
+        <SubscriptionCard status={settings.subscription_status} />
       </div>}
     </>}
     {message && <p role="alert" className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">{message}</p>}

@@ -6,9 +6,17 @@ on:
   pull_request:
     branches: [Master]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: pawtrackr-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -22,14 +30,60 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Reject High or Critical Dependency Advisories
+        run: npm audit --audit-level=high
+
       - name: Verify SQL Migrations & Schema Version Control (#2)
         run: node scripts/migrate-runner.mjs
 
       - name: Run TypeScript Strict Typecheck
         run: npm run typecheck
 
-      - name: Run 50-Point Architectural & Atomic POS Test Suite (#1, #22)
+      - name: Run Unit, Contract, Architecture, and Atomic POS Tests
         run: npm test
 
       - name: Build Production Next.js Bundle (#46)
         run: npm run build
+
+  migration-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install PostgreSQL Runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql postgresql-client postgresql-contrib
+          echo "$(pg_config --bindir)" >> "$GITHUB_PATH"
+
+      - name: Apply Every Migration and Verify Tenant/RPC Boundaries
+        run: npm run test:migrations
+
+  browser-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Chrome for Playwright
+        run: npx playwright install --with-deps chrome
+
+      - name: Build and Run Browser, Responsive, Offline, and Accessibility Tests
+        run: npm run test:e2e

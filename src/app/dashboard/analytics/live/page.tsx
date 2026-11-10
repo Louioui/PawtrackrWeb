@@ -175,9 +175,17 @@ export default function LiveSalonAnalyticsPage() {
           payment_method: paymentMethod,
         }),
       });
-      const body: unknown = await response.json();
+      const body = (await response.json()) as { error?: string; transaction?: unknown };
       if (response.status === 401) { setSignedIn(false); setSnapshot(null); setMessage('Your session expired. Sign in again.'); return; }
-      if (!response.ok) throw new Error((body as { error?: string }).error ?? 'The checkout record could not be saved.');
+      if (!response.ok) {
+        if (body?.transaction) {
+          checkoutMenuRef.current?.removeAttribute('open');
+          await refresh();
+          setMessage(body.error ?? 'The checkout was recorded, but the visit status could not be updated.');
+          return;
+        }
+        throw new Error(body?.error ?? 'The checkout record could not be saved.');
+      }
       checkoutMenuRef.current?.removeAttribute('open');
       await refresh();
     } catch (error) {

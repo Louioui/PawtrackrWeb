@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Download, RefreshCw, WifiOff } from 'lucide-react';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { VISIT_REFRESH_DEBOUNCE_MS, VisitRealtimeState, visitChangeConcernsTenant, visitChannelFilter, visitChannelName, visitRealtimeStateFrom } from '@/lib/visit-realtime';
 import { LiveReservation, LiveReservationDay, liveReservationCsv, normalizeLiveReservationDay, resolveSalonLocalTime, salonLocalDate, salonLocalMinute } from '@/lib/live-reservations';
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
@@ -36,6 +37,7 @@ export default function LiveAppointmentsPage() {
   const [phase, setPhase] = useState<'checking' | 'ready' | 'error'>('checking');
   const [message, setMessage] = useState('');
   const [online, setOnline] = useState(true);
+  const [realtime, setRealtime] = useState<VisitRealtimeState>('off');
   const [staffFilter, setStaffFilter] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusDraft, setStatusDraft] = useState<LiveReservation['status']>('booked');
@@ -113,6 +115,28 @@ export default function LiveAppointmentsPage() {
       document.removeEventListener('visibilitychange', resume);
     };
   }, [refresh]);
+
+  // Live updates: when any visit in this salon changes (a public booking, a
+  // status change on another device), refetch the day. The 60-second poll above
+  // stays as the fallback whenever the socket is not connected.
+  const liveBusinessId = signedIn ? snapshot?.business_id ?? null : null;
+  useEffect(() => {
+    const client = getSupabaseClient();
+    const name = visitChannelName(liveBusinessId);
+    const filter = visitChannelFilter(liveBusinessId);
+    if (!client || !liveBusinessId || !name || !filter) { setRealtime('off'); return; }
+    setRealtime('connecting');
+    let timer: number | undefined;
+    const channel = client
+      .channel(name)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'visits', filter }, (payload) => {
+        if (!visitChangeConcernsTenant(payload, liveBusinessId)) return;
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => { void refresh(); }, VISIT_REFRESH_DEBOUNCE_MS);
+      })
+      .subscribe((status) => setRealtime(visitRealtimeStateFrom(status)));
+    return () => { window.clearTimeout(timer); setRealtime('off'); void client.removeChannel(channel); };
+  }, [liveBusinessId, refresh]);
 
   const changeDay = (next: string) => {
     dayChosen.current = true; requestId.current += 1; setSnapshot(null); setSelectedId(null); setStaffFilter('all'); setBookingLocalDate(next); setDay(next);
@@ -306,7 +330,7 @@ export default function LiveAppointmentsPage() {
         <button type="button" onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm text-white"><RefreshCw className="h-4 w-4" /> Refresh</button>
         {snapshot && <button type="button" onClick={exportCsv} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm text-white"><Download className="h-4 w-4" /> Export visible CSV</button>}
         <span role="status" aria-live="polite" className={`ml-auto text-xs ${online && phase === 'ready' ? 'text-emerald-300' : 'text-amber-300'}`}>
-          {!online ? <><WifiOff className="mr-1 inline h-3 w-3" />Offline · {snapshot ? 'last loaded day' : 'no data'}</> : phase === 'checking' ? 'Refreshing…' : phase === 'error' ? snapshot ? 'Refresh failed · last loaded day' : 'Unavailable' : 'Server snapshot'}
+          {!online ? <><WifiOff className="mr-1 inline h-3 w-3" />Offline · {snapshot ? 'last loaded day' : 'no data'}</> : phase === 'checking' ? 'Refreshing…' : phase === 'error' ? snapshot ? 'Refresh failed · last loaded day' : 'Unavailable' : realtime === 'live' ? 'Live · updates automatically' : 'Server snapshot'}
         </span>
       </div>
       {snapshot && <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">

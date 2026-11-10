@@ -603,5 +603,99 @@ DO $$ BEGIN
   END IF;
 END $$;
 RESET ROLE;
+
+-- 0020: privileged bodies live outside the exposed public schema. The public
+-- API signatures remain callable only by the intended roles and run as the
+-- caller; the private implementations retain the narrowly scoped elevation.
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname IN ('provision_salon', 'public_booking_slots', 'public_book_appointment')
+      AND p.prosecdef
+  ) THEN
+    RAISE EXCEPTION 'An exposed Pawtrackr workflow RPC still runs as SECURITY DEFINER';
+  END IF;
+  IF (SELECT count(*) FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'private'
+        AND p.proname IN ('provision_salon_internal', 'public_booking_slots_internal', 'public_book_appointment_internal')
+        AND p.prosecdef) <> 3 THEN
+    RAISE EXCEPTION 'Privileged workflow implementations are missing from private schema';
+  END IF;
+  IF has_function_privilege('anon', 'public.provision_salon(text,text,text,text)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.provision_salon(text,text,text,text)', 'EXECUTE')
+     OR NOT has_function_privilege('anon', 'public.public_booking_slots(text,text,date)', 'EXECUTE')
+     OR NOT has_function_privilege('anon', 'public.public_book_appointment(text,text,timestamptz,text,text,text,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Public workflow RPC grants changed during hardening';
+  END IF;
+  IF (SELECT count(*) FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'stripe_webhook_events') <> 4 THEN
+    RAISE EXCEPTION 'Webhook event ledger does not have explicit client deny policies';
+  END IF;
+END $$;
+-- 0024: billing state is written only by verified Stripe subscription events.
+DO $$
+DECLARE
+  salon uuid := '11111111-1111-4111-8111-111111111111';
+  blocked boolean := false;
+  reached integer := 0;
+BEGIN
+  IF has_function_privilege('authenticated', 'public.apply_stripe_subscription_event(text,text,timestamptz,uuid,text,text,text,text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.apply_stripe_subscription_event(text,text,timestamptz,uuid,text,text,text,text)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.apply_stripe_subscription_event(text,text,timestamptz,uuid,text,text,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Subscription event function has the wrong grants';
+  END IF;
+
+  UPDATE public.businesses SET subscription_status = 'trialing', stripe_customer_id = NULL,
+    stripe_subscription_id = NULL, subscription_event_at = NULL WHERE id = salon;
+
+  -- An API role cannot activate its own salon, but can still rename it.
+  UPDATE public.staff_members SET is_active = true, business_id = salon
+    WHERE auth_user_id = 'aaaaaaaa-0000-4000-8000-000000000000';
+  PERFORM set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-4000-8000-000000000000', true);
+  PERFORM set_config('request.jwt.claims', '{}', true);
+  SET LOCAL ROLE authenticated;
+  UPDATE public.businesses SET name = name WHERE id = salon;
+  GET DIAGNOSTICS reached = ROW_COUNT;
+  BEGIN
+    UPDATE public.businesses SET subscription_status = 'active' WHERE id = salon;
+  EXCEPTION WHEN SQLSTATE 'PW040' THEN blocked := true;
+  END;
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  IF reached <> 1 THEN
+    RAISE EXCEPTION 'Billing guard fixture did not reach the salon row as staff';
+  END IF;
+  IF NOT blocked THEN
+    RAISE EXCEPTION 'An API role changed its own subscription status';
+  END IF;
+
+  IF public.apply_stripe_subscription_event('evt_sub_1', 'checkout.session.completed', '2026-11-10 10:00+00', salon, 'cus_a', 'sub_a', NULL, 'solo_van') <> 'linked'
+     OR public.apply_stripe_subscription_event('evt_sub_2', 'customer.subscription.updated', '2026-11-10 10:05+00', NULL, 'cus_a', 'sub_a', 'active', NULL) <> 'updated'
+     OR public.apply_stripe_subscription_event('evt_sub_2', 'customer.subscription.updated', '2026-11-10 10:05+00', NULL, 'cus_a', 'sub_a', 'active', NULL) <> 'duplicate' THEN
+    RAISE EXCEPTION 'Subscription link, activation, or replay handling is wrong';
+  END IF;
+  IF (SELECT subscription_status || '|' || subscription_plan || '|' || stripe_customer_id || '|' || stripe_subscription_id
+      FROM public.businesses WHERE id = salon) <> 'active|solo_van|cus_a|sub_a' THEN
+    RAISE EXCEPTION 'Verified subscription events did not produce the expected billing state';
+  END IF;
+
+  -- A late, older event must not overwrite newer state; a foreign customer must not attach.
+  IF public.apply_stripe_subscription_event('evt_sub_3', 'customer.subscription.updated', '2026-11-10 10:01+00', NULL, 'cus_a', 'sub_a', 'trialing', NULL) <> 'stale'
+     OR public.apply_stripe_subscription_event('evt_sub_4', 'customer.subscription.updated', '2026-11-10 10:06+00', salon, 'cus_other', 'sub_x', 'canceled', NULL) <> 'customer_mismatch'
+     OR public.apply_stripe_subscription_event('evt_sub_5', 'customer.subscription.updated', '2026-11-10 10:07+00', NULL, 'cus_none', 'sub_none', 'active', NULL) <> 'unknown_business'
+     OR (SELECT subscription_status FROM public.businesses WHERE id = salon) <> 'active' THEN
+    RAISE EXCEPTION 'Stale, mismatched, or unknown subscription events changed billing state';
+  END IF;
+
+  IF public.apply_stripe_subscription_event('evt_sub_6', 'customer.subscription.deleted', '2026-11-10 11:00+00', NULL, 'cus_a', 'sub_a', 'canceled', NULL) <> 'updated'
+     OR (SELECT subscription_status || '|' || COALESCE(stripe_subscription_id, 'none') FROM public.businesses WHERE id = salon) <> 'canceled|none' THEN
+    RAISE EXCEPTION 'Subscription cancellation was not applied';
+  END IF;
+
+  UPDATE public.businesses SET subscription_status = 'active' WHERE id = salon;
+END $$;
 SQL
 printf 'Migration execution and basic tenant/RPC checks passed.\n'

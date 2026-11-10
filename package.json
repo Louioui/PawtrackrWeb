@@ -10,12 +10,18 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "migrate:check": "node scripts/migrate-runner.mjs",
+    "check:production-env": "node scripts/validate-production-env.mjs",
     "test:migrations": "bash scripts/test-migrations.sh",
     "test": "node scripts/verify-architecture.mjs && node --test tests/*.test.mjs",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "node scripts/run-isolated-e2e.mjs",
+    "test:e2e:configured": "npm run build && playwright test",
+    "verify": "npm run migrate:check && npm run typecheck && npm test && npm run build",
+    "release:check": "npm run check:production-env && npm run verify && npm run test:migrations && npm run test:e2e"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.1",
+    "@upstash/ratelimit": "2.2.0",
+    "@upstash/redis": "1.41.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.475.0",
     "next": "^15.1.6",

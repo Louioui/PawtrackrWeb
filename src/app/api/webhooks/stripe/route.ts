@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { settlementEventFrom, verifyStripeEvent } from '@/lib/stripe-webhook';
+import { settlementEventFrom, subscriptionEventFrom, verifyStripeEvent } from '@/lib/stripe-webhook';
 
 export const runtime = 'nodejs';
 
@@ -24,10 +24,30 @@ export async function POST(req: NextRequest) {
   const event = verifyStripeEvent(rawBody, req.headers.get('stripe-signature'), secret);
   if (!event) return reply({ error: 'Invalid Stripe signature.' }, 400);
 
+  const supabase = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+
+  // Salon subscription billing: public.apply_stripe_subscription_event
+  // (migration 0024) records the event id once and is the only writer of a
+  // salon's plan, status, customer and subscription ids.
+  const subscription = subscriptionEventFrom(event);
+  if (subscription) {
+    const { data, error } = await supabase.rpc('apply_stripe_subscription_event', {
+      p_event_id: subscription.event_id,
+      p_event_type: subscription.type,
+      p_event_created: subscription.created_at,
+      p_business_id: subscription.business_id,
+      p_customer_id: subscription.customer_id,
+      p_subscription_id: subscription.subscription_id,
+      p_status: subscription.status,
+      p_plan: subscription.plan,
+    });
+    if (error || typeof data !== 'string') return reply({ error: 'The subscription event could not be recorded.' }, 500);
+    return reply({ received: true, outcome: data }, 200);
+  }
+
   const settlement = settlementEventFrom(event);
   if (!settlement) return reply({ received: true, outcome: 'ignored' }, 200);
 
-  const supabase = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data, error } = await supabase.rpc('apply_stripe_payment_event', {
     p_event_id: settlement.event_id,
     p_event_type: settlement.type,

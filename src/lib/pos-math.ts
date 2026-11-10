@@ -126,22 +126,22 @@ export function lookupAutomatedMunicipalTaxRate(zipOrCity: string): {
   retailTaxRate: number;
   jurisdictionName: string;
 } {
-  const q = zipOrCity.toLowerCase();
-  if (q.includes('941') || q.includes('san francisco')) {
+  const q = zipOrCity.trim().toLowerCase();
+  if (q.startsWith('941') || q.includes('san francisco')) {
     return {
       serviceTaxRate: 8.63,
       retailTaxRate: 8.63,
       jurisdictionName: 'San Francisco County, CA (863 bps)',
     };
   }
-  if (q.includes('904') || q.includes('santa monica')) {
+  if (q.startsWith('904') || q.includes('santa monica')) {
     return {
       serviceTaxRate: 9.5,
       retailTaxRate: 10.25,
       jurisdictionName: 'Santa Monica / LA County, CA (950/1025 bps)',
     };
   }
-  if (q.includes('100') || q.includes('new york')) {
+  if (q.startsWith('100') || q.includes('new york')) {
     return {
       serviceTaxRate: 4.5,
       retailTaxRate: 8.875,
@@ -289,8 +289,13 @@ export function calculateMultiStylistSplit(
 }> {
   if (stylistWeights.length === 0 || totalPoolCents <= 0) return [];
 
-  const totalWeight =
-    stylistWeights.reduce((acc, s) => acc + s.sharePercent, 0) || 100;
+  stylistWeights = stylistWeights.map((s) => ({
+    ...s,
+    sharePercent:
+      Number.isFinite(s.sharePercent) && s.sharePercent > 0 ? s.sharePercent : 0,
+  }));
+  const totalWeight = stylistWeights.reduce((acc, s) => acc + s.sharePercent, 0);
+  if (totalWeight <= 0) return [];
 
   let allocatedSum = 0;
   const prelim = stylistWeights.map((s) => {

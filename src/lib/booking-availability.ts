@@ -33,7 +33,7 @@ export function isStaffSlotAvailable(
   if (!requested || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return false;
   const requestedStart = Date.parse(`${requested.date}T00:00:00Z`) / 60_000 + requested.minute;
   return !visits.some((visit) => {
-    if (visit.business_id !== businessId || visit.staff_id !== staffId || visit.status === 'completed') return false;
+    if (visit.business_id !== businessId || visit.staff_id !== staffId || visit.status === 'completed' || visit.status === 'ready') return false;
     const existing = slotMinute(visit.scheduled_time);
     if (!existing) return false;
     const existingStart = Date.parse(`${existing.date}T00:00:00Z`) / 60_000 + existing.minute;

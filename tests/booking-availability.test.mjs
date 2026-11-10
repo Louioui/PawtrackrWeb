@@ -32,3 +32,8 @@ test('second pet starts after the first service, including noon and day rollover
   assert.equal(isStaffSlotAvailable(visits, 'salon-a', 'groomer-a', '2026-11-10 12:30 PM', 60), true);
   assert.equal(isStaffSlotAvailable([visit('2026-11-10 11:00 PM', 120)], 'salon-a', 'groomer-a', '2026-11-11 12:30 AM', 60), false);
 });
+
+test('ready visits do not block the groomer', () => {
+  const ready = [visit('2026-11-10 09:00 AM', 120, { status: 'ready' })];
+  assert.equal(isStaffSlotAvailable(ready, 'salon-a', 'groomer-a', '2026-11-10 10:30 AM', 60), true);
+});

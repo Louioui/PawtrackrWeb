@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
-import { calculateAtomicPOSCheckout, calculateMultiStylistSplit, reconcileEndOfDayDrawer } from '../src/lib/pos-math.ts';
+import { lookupAutomatedMunicipalTaxRate, calculateAtomicPOSCheckout, calculateMultiStylistSplit, reconcileEndOfDayDrawer } from '../src/lib/pos-math.ts';
 import { buildSalonSearchIndex, executeMultiTokenSearch } from '../src/lib/search-engine.ts';
 
 test('application POS and tip engines conserve cents across representative combinations', () => {
@@ -51,4 +51,25 @@ test('application search engine isolates the salon and matches mixed tokens', ()
   const started = performance.now();
   for (let i = 0; i < 500; i++) executeMultiTokenSearch(index, 'bello 4829');
   assert.ok((performance.now() - started) / 500 < 10);
+});
+
+test('municipal tax lookup matches ZIP prefixes, not arbitrary digits', () => {
+  assert.equal(lookupAutomatedMunicipalTaxRate('94103').serviceTaxRate, 8.63);
+  assert.equal(lookupAutomatedMunicipalTaxRate('90405').retailTaxRate, 10.25);
+  assert.equal(lookupAutomatedMunicipalTaxRate('10001').serviceTaxRate, 4.5);
+  assert.equal(lookupAutomatedMunicipalTaxRate('New York').serviceTaxRate, 4.5);
+  for (const zip of ['91004', '19040', '39410']) {
+    assert.equal(lookupAutomatedMunicipalTaxRate(zip).serviceTaxRate, 8.25, zip);
+  }
+});
+
+test('stylist split ignores non-positive weights and conserves the pool', () => {
+  const split = calculateMultiStylistSplit(1001, [
+    { staffId: 'a', name: 'A', sharePercent: 50 },
+    { staffId: 'b', name: 'B', sharePercent: -20 },
+    { staffId: 'c', name: 'C', sharePercent: 50 },
+  ]);
+  assert.equal(split.find((s) => s.staffId === 'b').allocatedCents, 0);
+  assert.equal(split.reduce((n, s) => n + s.allocatedCents, 0), 1001);
+  assert.deepEqual(calculateMultiStylistSplit(500, [{ staffId: 'a', name: 'A', sharePercent: 0 }]), []);
 });

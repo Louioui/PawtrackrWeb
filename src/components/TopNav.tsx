@@ -184,7 +184,7 @@ export function TopNav() {
 
             <Link
               href="/signup"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-periwinkle-400 px-3 py-2 text-xs font-bold text-obsidian-950 transition hover:bg-periwinkle-300"
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-periwinkle-400 px-3 py-2 text-xs font-bold text-obsidian-950 transition hover:bg-periwinkle-300"
             >
               <span>Salon sign in</span>
             </Link>
@@ -219,6 +219,12 @@ export function TopNav() {
               </Link>
             );
           })}
+          <Link
+            href="/signup"
+            className="flex sm:hidden shrink-0 items-center gap-1.5 rounded-lg bg-periwinkle-400 px-3 py-1.5 text-xs font-bold text-obsidian-950"
+          >
+            <span>Salon sign in</span>
+          </Link>
         </div>
       </header>
 

@@ -43,19 +43,48 @@ export async function GET(req: NextRequest) {
     .order('scheduled_time', { ascending: true }).order('id', { ascending: true }).limit(1001);
   if (visitsError || !visits) return reply({ error: 'Reservations could not be loaded.' }, 502);
   if (visits.length > 1000) return reply({ error: 'This day has too many reservations to display.' }, 413);
-  const [pets, clients, staff, business, config] = await Promise.all([
+  const visitPetIds = [...new Set(visits.map((v) => v.pet_id))];
+  const visitClientIds = [...new Set(visits.map((v) => v.client_id))];
+  const visitStaffIds = [...new Set(visits.map((v) => v.staff_id).filter((id): id is string => Boolean(id)))];
+  const [pets, clients, staff, business, config, visitPets, visitClients, visitStaff] = await Promise.all([
     supabase.from('pets').select('id,client_id,name').eq('business_id', membership.business_id).order('name', { ascending: true }).limit(500),
     supabase.from('clients').select('id,name').eq('business_id', membership.business_id).order('name', { ascending: true }).limit(500),
     supabase.from('staff_members').select('id,name,role,is_active').eq('business_id', membership.business_id).order('name', { ascending: true }).limit(200),
     supabase.from('businesses').select('subscription_status').eq('id', membership.business_id).maybeSingle(),
     supabase.from('business_configs').select('custom_settings,currency').eq('business_id', membership.business_id).maybeSingle(),
+    visitPetIds.length ? supabase.from('pets').select('id,name').eq('business_id', membership.business_id).in('id', visitPetIds) : Promise.resolve({ data: [], error: null }),
+    visitClientIds.length ? supabase.from('clients').select('id,name').eq('business_id', membership.business_id).in('id', visitClientIds) : Promise.resolve({ data: [], error: null }),
+    visitStaffIds.length ? supabase.from('staff_members').select('id,name').eq('business_id', membership.business_id).in('id', visitStaffIds) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (pets.error || clients.error || staff.error || business.error || config.error || !pets.data || !clients.data || !staff.data) {
+  if (
+    pets.error || clients.error || staff.error || business.error || config.error ||
+    visitPets.error || visitClients.error || visitStaff.error ||
+    !pets.data || !clients.data || !staff.data || !visitPets.data || !visitClients.data || !visitStaff.data
+  ) {
     return reply({ error: 'Reservation labels could not be loaded.' }, 502);
   }
-  const petNames = new Map(pets.data.map((item) => [item.id, item.name]));
-  const clientNames = new Map(clients.data.map((item) => [item.id, item.name]));
-  const staffNames = new Map(staff.data.map((item) => [item.id, item.name]));
+  const petNames = new Map([
+    ...pets.data.map((item) => [item.id, item.name] as const),
+    ...visitPets.data.map((item) => [item.id, item.name] as const),
+  ]);
+  const clientNames = new Map([
+    ...clients.data.map((item) => [item.id, item.name] as const),
+    ...visitClients.data.map((item) => [item.id, item.name] as const),
+  ]);
+  const staffNames = new Map([
+    ...staff.data.map((item) => [item.id, item.name] as const),
+    ...visitStaff.data.map((item) => [item.id, item.name] as const),
+  ]);
+  const missingBookingClientIds = [...new Set(pets.data.map((pet) => pet.client_id).filter((id) => !clientNames.has(id)))];
+  if (missingBookingClientIds.length > 0) {
+    const missingBookingClients = await supabase.from('clients').select('id,name').eq('business_id', membership.business_id).in('id', missingBookingClientIds);
+    if (missingBookingClients.error || !missingBookingClients.data) {
+      return reply({ error: 'Reservation labels could not be loaded.' }, 502);
+    }
+    for (const item of missingBookingClients.data) {
+      clientNames.set(item.id, item.name);
+    }
+  }
   const canBook = !!business.data && ['active', 'trialing'].includes(business.data.subscription_status) &&
     config.data?.currency === 'USD';
   const settings = (config.data?.custom_settings ?? null) as Record<string, unknown> | null;

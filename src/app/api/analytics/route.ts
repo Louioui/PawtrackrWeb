@@ -55,30 +55,33 @@ export async function GET(req: NextRequest) {
     if (data.length < pageSize) break;
   }
 
-  const [visitsResult, petsResult] = await Promise.all([
-    supabase.from('visits')
-      .select('id,pet_id,service_package,scheduled_time,total_amount,status')
-      .eq('business_id', staff.business_id)
-      .neq('status', 'cancelled')
-      .order('scheduled_time', { ascending: false })
-      .limit(100),
-    supabase.from('pets')
-      .select('id,name')
-      .eq('business_id', staff.business_id)
-      .limit(500),
-  ]);
-  if (visitsResult.error || petsResult.error || !visitsResult.data || !petsResult.data) {
+  const visitsResult = await supabase.from('visits')
+    .select('id,pet_id,service_package,scheduled_time,total_amount,status')
+    .eq('business_id', staff.business_id)
+    .neq('status', 'cancelled')
+    .order('scheduled_time', { ascending: false })
+    .limit(100);
+  if (visitsResult.error || !visitsResult.data) {
     return reply({ error: 'Checkout data could not be loaded.' }, 502);
   }
   const visitIds = visitsResult.data.map((item) => item.id);
-  const completedTxResult = visitIds.length
-    ? await supabase.from('transactions')
-        .select('visit_id')
-        .eq('business_id', staff.business_id)
-        .eq('status', 'completed')
-        .in('visit_id', visitIds)
-    : { data: [], error: null };
-  if (completedTxResult.error || !completedTxResult.data) {
+  const visitPetIds = [...new Set(visitsResult.data.map((item) => item.pet_id))];
+  const [completedTxResult, petsResult] = await Promise.all([
+    visitIds.length
+      ? supabase.from('transactions')
+          .select('visit_id')
+          .eq('business_id', staff.business_id)
+          .eq('status', 'completed')
+          .in('visit_id', visitIds)
+      : Promise.resolve({ data: [], error: null }),
+    visitPetIds.length
+      ? supabase.from('pets')
+          .select('id,name')
+          .eq('business_id', staff.business_id)
+          .in('id', visitPetIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (completedTxResult.error || petsResult.error || !completedTxResult.data || !petsResult.data) {
     return reply({ error: 'Checkout data could not be loaded.' }, 502);
   }
   const completedVisitIds = new Set(completedTxResult.data.map((item) => item.visit_id));

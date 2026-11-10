@@ -27,14 +27,21 @@ export async function GET(req: NextRequest) {
   if (membershipError) return reply({ error: 'Staff membership could not be checked.' }, 502);
   if (!membership) return reply({ error: 'An active staff membership is required.' }, 403);
 
-  const [clients, pets] = await Promise.all([
-    supabase.from('clients').select('id,name,phone,email').eq('business_id', membership.business_id).order('name', { ascending: true }).limit(500),
+  const [clientCountResult, pets] = await Promise.all([
+    supabase.from('clients').select('id', { count: 'exact', head: true }).eq('business_id', membership.business_id),
     supabase.from('pets').select('id,client_id,name,breed,weight_lbs').eq('business_id', membership.business_id).order('name', { ascending: true }).limit(500),
   ]);
-  if (clients.error || pets.error || !clients.data || !pets.data) {
+  if (clientCountResult.error || pets.error || !pets.data) {
     return reply({ error: 'Salon clients and pets could not be loaded.' }, 502);
   }
-  const clientById = new Map(clients.data.map((client) => [client.id, client]));
+  const ownerIds = [...new Set(pets.data.map((pet) => pet.client_id))];
+  const ownersResult = ownerIds.length > 0
+    ? await supabase.from('clients').select('id,name,phone,email').eq('business_id', membership.business_id).in('id', ownerIds)
+    : { data: [], error: null };
+  if (ownersResult.error || !ownersResult.data) {
+    return reply({ error: 'Salon clients and pets could not be loaded.' }, 502);
+  }
+  const clientById = new Map(ownersResult.data.map((client) => [client.id, client]));
   const petRows = pets.data.flatMap((pet) => {
     const owner = clientById.get(pet.client_id);
     if (!owner) return [];
@@ -54,7 +61,7 @@ export async function GET(req: NextRequest) {
     source: 'supabase_clients_pets',
     business_id: membership.business_id,
     as_of: new Date().toISOString(),
-    client_count: clients.data.length,
+    client_count: Math.max(clientCountResult.count ?? 0, clientById.size),
     pet_count: petRows.length,
     pets: petRows,
   }, 200);

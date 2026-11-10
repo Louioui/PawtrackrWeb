@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { bookingFitsStaffShifts, catalogPriceCents, centsToDecimalString, isWithinSalonOperatingHours, parseClockMinute, salonLocalDate, validSalonTimeZone } from '@/lib/live-reservations';
+import { bookingFitsStaffShifts, catalogPriceCents, centsToDecimalString, isWithinSalonOperatingHours, parseClockMinute, salonLocalDate, salonLocalDayRange, validSalonTimeZone } from '@/lib/live-reservations';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,10 +29,8 @@ export async function GET(req: NextRequest) {
   const day = req.nextUrl.searchParams.get('date');
   const parsedDay = day && /^\d{4}-\d\d-\d\d$/.test(day) ? new Date(`${day}T00:00:00.000Z`) : null;
   if (!parsedDay || !Number.isFinite(parsedDay.getTime()) || parsedDay.toISOString().slice(0, 10) !== day) {
-    return reply({ error: 'date must be a valid YYYY-MM-DD UTC date.' }, 400);
+    return reply({ error: 'date must be a valid YYYY-MM-DD date.' }, 400);
   }
-  const start = parsedDay;
-  const end = new Date(start.getTime() + 86400000);
   const supabase = createClient(url, key, {
     global: { headers: { Authorization: `Bearer ${match[1]}` } },
     auth: { persistSession: false, autoRefreshToken: false },
@@ -43,6 +41,18 @@ export async function GET(req: NextRequest) {
     .select('business_id').eq('auth_user_id', user.id).eq('is_active', true).maybeSingle();
   if (membershipError) return reply({ error: 'Staff membership could not be checked.' }, 502);
   if (!membership) return reply({ error: 'An active staff membership is required.' }, 403);
+
+  // The requested date is a salon-local calendar day. A salon without a valid
+  // zone is shown in UTC, and the response says which zone was used.
+  const { data: zoneConfig, error: zoneError } = await supabase.from('business_configs')
+    .select('custom_settings').eq('business_id', membership.business_id).maybeSingle();
+  if (zoneError) return reply({ error: 'Reservations could not be loaded.' }, 502);
+  const configuredZone = (zoneConfig?.custom_settings as Record<string, unknown> | null)?.time_zone;
+  const dayZone = validSalonTimeZone(configuredZone) ? configuredZone : 'UTC';
+  const range = salonLocalDayRange(day as string, dayZone);
+  if (!range) return reply({ error: 'date must be a valid YYYY-MM-DD date.' }, 400);
+  const start = new Date(range.start);
+  const end = new Date(range.end);
 
   const { data: visits, error: visitsError } = await supabase.from('visits')
     .select('id,client_id,pet_id,staff_id,status,service_package,scheduled_time,reservation_end')
@@ -121,7 +131,9 @@ export async function GET(req: NextRequest) {
     source: 'supabase_visits',
     business_id: membership.business_id,
     date: day,
-    timezone: 'UTC',
+    timezone: dayZone,
+    day_start: range.start,
+    day_end: range.end,
     as_of: new Date().toISOString(),
     reservations: visits.map((visit) => ({
       id: visit.id,

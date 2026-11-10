@@ -6,7 +6,6 @@ Pawtrackr currently runs with an unauthenticated disk-backed demo ledger. Its lo
 - `POST /api/checkout`
 - `POST /api/bookings`
 - `POST /api/billing/subscribe`
-- `POST /api/webhooks/stripe`
 
 Each returns HTTP 503 and `Cache-Control: no-store`. Public pages still contain only the checked-in illustrative data. The middleware identifies this as `x-pawtrackr-data-mode: demo-only`; it no longer claims that the disk ledger is RLS protected.
 
@@ -46,7 +45,7 @@ Development-only `GET /api/store?business_id=...` now filters `configs` as well 
 
 Verification performed on the built Next.js server: all five protected route groups returned 503. `npm test`, `npm run typecheck`, and `npm run build` passed in the recent focused runs. The Pawtrackr Supabase schema is installed but the app has not been connected to it for production requests.
 
-`npm run migrate:check` is a static inventory gate: it checks sequential filenames, nonempty files, and prints SHA-256 prefixes. `npm run test:migrations` creates a temporary local PostgreSQL database, applies all sixteen migrations, and checks selected client tenant filtering, cross-business reference rejection, privileged RPC grants, grooming photo visibility, public booking views and published time zone, and active staff identity binding using a minimal Supabase auth/storage fixture. PostgreSQL 14 was used locally, while the migration target declares Supabase PostgreSQL 15+. Hosted role-simulation checks also passed and rolled back their fixtures. These tests do not verify a real Supabase Auth token, Storage request, every table policy, or production tenant authorization end to end.
+`npm run migrate:check` is a static inventory gate: it checks sequential filenames, nonempty files, and prints SHA-256 prefixes. `npm run test:migrations` creates a temporary local PostgreSQL database, applies all nineteen migrations, and checks selected client tenant filtering, cross-business reference rejection, privileged RPC grants, grooming photo visibility, public booking views and published time zone, and active staff identity binding using a minimal Supabase auth/storage fixture. PostgreSQL 14 was used locally, while the migration target declares Supabase PostgreSQL 15+. Hosted role-simulation checks also passed and rolled back their fixtures. These tests do not verify a real Supabase Auth token, Storage request, every table policy, or production tenant authorization end to end.
 
 Local testing found that an authenticated tenant could call the `SECURITY DEFINER` payroll function with another tenant's `business_id` and receive its staff ledger. Migration `0004_restrict_privileged_rpcs.sql` removes direct `anon` and `authenticated` execution grants from payroll and checkout RPCs and grants execution to `service_role`. A future server implementation must verify the caller's identity and tenant membership before using that role; possession of the service key alone is not tenant authorization. Supabase's native migration history records the hosted migrations; the app no longer creates a parallel history table with placeholder checksums.
 
@@ -57,6 +56,18 @@ Migration `0007_public_booking_views.sql` removes direct public reads of full bu
 Migration `0008_bind_tenant_to_active_staff.sql` makes `current_business_id()` resolve a tenant only from an active `staff_members` row matching `auth.uid()`. If a JWT tenant claim exists, it must match that row. A claim alone, a missing user ID, or an inactive staff row yields no tenant access. Provisioning must create the staff membership through a trusted server path before staff use the dashboard.
 
 Migration `0012_atomic_staff_reservations.sql` computes a visit’s end from its duration and buffer on every insert or update. A GiST exclusion constraint rejects overlaps for the same business and assigned groomer while the visit has an active status. `0013_move_btree_gist_extension.sql` moves the supporting extension out of `public`. `0014_harden_transaction_checkout_invariants.sql` enforces `discount <= subtotal AND amount = subtotal - discount + tax + tip` and a partial unique index `transactions_one_completed_per_visit` on `public.transactions` so concurrent requests cannot record two completed checkouts for the same visit. Migration 0014 is installed on the dedicated hosted project; direct catalog inspection found both constraint definitions and the hosted security advisor returned no findings. Local PostgreSQL tests exercised the rejection behavior; the hosted database was inspected but not seeded for another write test. `/api/clients` (`GET`, `POST`, and `PATCH`) and `/dashboard/clients/live` allow signed-in staff to view and register tenant clients and pets and update pet weight observations under caller RLS. `/api/settings` (`GET`, `PATCH`, and `POST`) and `/dashboard/settings/live` allow signed-in staff to read and update salon operating hours, turnaround buffers, tax rates, service packages, spa add-ons, and groomer staff under caller RLS, automatically refreshing the public booking catalog table.
+
+## Sign-up, public booking, and settlement
+
+`POST /api/webhooks/stripe` is no longer a disabled demo route. It returns 503 until `STRIPE_WEBHOOK_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` are set, 400 unless Stripe's signature verifies over the raw request body, and otherwise passes the event to `public.apply_stripe_payment_event`. This is the only route that uses the service-role key, and it does so only after verification.
+
+`GET` and `POST /api/onboarding` verify a bearer token with Supabase Auth. `POST` calls `public.provision_salon` with the caller's own token; the function derives the owner from `auth.uid()`.
+
+`GET /api/public/availability` and `POST /api/public/bookings` use the publishable key with no user session and call only `public_booking_slots` and `public_book_appointment`. The salon is identified by its public slug; price, duration, buffer, and groomer are decided in the database. Neither response includes another client's data, an internal id, or a groomer.
+
+`POST /api/payments/intent` verifies a staff bearer token, reads the transaction under caller RLS, and takes the charge amount from the stored row. It uses the transaction id as Stripe's idempotency key and cancels the intent if it cannot be linked to the checkout.
+
+Migrations `0016`–`0019` are verified in local PostgreSQL only. See [build status](build-status.md) for what each enforces and what remains unverified.
 
 ## Dependency audit
 

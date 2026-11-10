@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import Link from 'next/link';
 import { Download, RefreshCw, WifiOff } from 'lucide-react';
 import { formatCents } from '@/lib/pos-math';
-import { LiveEligibleVisit, normalizeEligibleVisits } from '@/lib/production-analytics';
+import { LiveEligibleVisit, SettlementTotals, normalizeEligibleVisits } from '@/lib/production-analytics';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 type WindowDays = 7 | 30 | 90;
@@ -20,6 +20,7 @@ type Snapshot = {
   checkout_count: number;
   daily: Daily[];
   eligible_visits?: LiveEligibleVisit[];
+  settlement?: unknown;
 };
 
 function isSnapshot(value: unknown, days: WindowDays): value is Snapshot {
@@ -195,6 +196,15 @@ export default function LiveSalonAnalyticsPage() {
     }
   };
 
+  // Shown only when every bucket is a well-formed count and cent total.
+  const settlement = useMemo((): SettlementTotals | null => {
+    const raw = snapshot?.settlement;
+    if (!raw || typeof raw !== 'object') return null;
+    const states = ['unsettled', 'pending', 'settled', 'failed', 'refunded'] as const;
+    const row = raw as Record<string, { cents?: unknown; count?: unknown } | undefined>;
+    return states.every((state) => Number.isSafeInteger(row[state]?.cents) && Number.isSafeInteger(row[state]?.count))
+      ? raw as SettlementTotals : null;
+  }, [snapshot]);
   const chart = useMemo(() => {
     if (!snapshot) return { line: '', max: 0 };
     const max = Math.max(1, ...snapshot.daily.map((item) => item.recorded_checkout_cents));
@@ -312,6 +322,12 @@ export default function LiveSalonAnalyticsPage() {
             <div className="flex gap-3"><div aria-hidden="true" className="flex h-44 flex-col justify-between py-2 text-right font-mono text-xs text-zinc-400"><span>{formatCents(chart.max)}</span><span>$0.00</span></div><svg viewBox="0 0 700 170" preserveAspectRatio="none" className="h-44 min-w-0 flex-1" aria-hidden="true"><line x1="8" x2="692" y1="160" y2="160" stroke="#777187" /><polyline points={chart.line} fill="none" stroke="#8B95FF" strokeWidth="3" vectorEffect="non-scaling-stroke" /></svg></div>
             <div className="ml-20 flex justify-between text-xs text-zinc-400"><span>{snapshot.daily[0].utc_date}</span><span>{snapshot.daily.at(-1)?.utc_date}</span></div>
           </div>}
+          {settlement && <dl aria-label="Payment settlement" className="mt-5 grid gap-2 rounded-xl border border-white/10 p-3 text-sm sm:grid-cols-3">
+            <div><dt className="text-xs text-zinc-400">Confirmed by Stripe</dt><dd className="font-mono text-emerald-300">{formatCents(settlement.settled.cents)} <span className="text-xs text-zinc-500">· {settlement.settled.count}</span></dd></div>
+            <div><dt className="text-xs text-zinc-400">Card payment in progress</dt><dd className="font-mono text-white">{formatCents(settlement.pending.cents)} <span className="text-xs text-zinc-500">· {settlement.pending.count}</span></dd></div>
+            <div><dt className="text-xs text-zinc-400">Recorded only (cash or not charged)</dt><dd className="font-mono text-white">{formatCents(settlement.unsettled.cents)} <span className="text-xs text-zinc-500">· {settlement.unsettled.count}</span></dd></div>
+            {(settlement.failed.count > 0 || settlement.refunded.count > 0) && <div className="sm:col-span-3"><dt className="text-xs text-amber-300">Needs attention</dt><dd className="text-amber-100">{settlement.failed.count > 0 && <span className="mr-4">Failed: <span className="font-mono">{formatCents(settlement.failed.cents)}</span> · {settlement.failed.count}</span>}{settlement.refunded.count > 0 && <span>Refunded: <span className="font-mono">{formatCents(settlement.refunded.cents)}</span> · {settlement.refunded.count}</span>}</dd></div>}
+          </dl>}
           <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={exportCsv} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-3 text-sm text-zinc-200"><Download className="h-4 w-4" /> Export daily CSV</button></div>
           <details className="mt-4 rounded-xl border border-white/10 p-3"><summary className="cursor-pointer text-sm font-semibold text-zinc-200">View daily values</summary><div className="mt-3 max-h-72 overflow-auto"><table className="w-full text-sm"><caption className="sr-only">Daily recorded checkout totals in UTC</caption><thead><tr className="text-left text-zinc-400"><th scope="col" className="py-2">UTC date</th><th scope="col" className="py-2 text-right">Checkouts</th><th scope="col" className="py-2 text-right">Total</th></tr></thead><tbody>{snapshot.daily.map((day) => <tr key={day.utc_date} className="border-t border-white/10 text-zinc-200"><th scope="row" className="py-2 text-left font-normal">{day.utc_date}</th><td className="py-2 text-right">{day.checkout_count}</td><td className="py-2 text-right font-mono">{formatCents(day.recorded_checkout_cents)}</td></tr>)}</tbody></table></div></details>
           <p className="mt-4 border-t border-white/10 pt-3 text-xs text-zinc-400">Source: Pawtrackr Supabase completed transaction records for the signed-in staff member’s active salon. As of {new Date(snapshot.as_of).toLocaleString()}. Pending and refunded transactions are excluded. Payment settlement is unverified.</p>

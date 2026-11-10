@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getPublicBookingClient, parsePublicCatalog, parsePublicSalon } from '@/lib/public-booking';
+import BookingForm, { BookableService } from './BookingForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,12 @@ export default async function LiveSalonCatalogPage({ params }: { params: Promise
   const salon = parsePublicSalon(directory.data);
   if (!salon || !catalog.data) notFound();
   const services = parsePublicCatalog(catalog.data);
+  // Online booking needs a service the database can price and time, plus a zone
+  // and hours to place it in. Anything less stays a read-only catalog.
+  const bookable: BookableService[] = services.packages.flatMap((item) =>
+    item.id && item.price !== null && item.durationMinutes !== null
+      ? [{ id: item.id, name: item.name, price: item.price, durationMinutes: item.durationMinutes }] : []);
+  const canBook = bookable.length > 0 && services.timeZone !== null && services.operatingHours !== null;
 
   return <main className="mx-auto max-w-4xl px-4 pb-20 pt-10 sm:px-6">
     <Link href="/portal/live" className="text-sm text-periwinkle-300 hover:text-white">← All live salons</Link>
@@ -28,7 +35,10 @@ export default async function LiveSalonCatalogPage({ params }: { params: Promise
         : <p className="mt-4 text-sm text-zinc-400">This salon has not published services yet.</p>}
     </section>
     {services.addons.length > 0 && <section className="glass-card mt-5 p-5 sm:p-6" aria-labelledby="addons-heading"><h2 id="addons-heading" className="text-xl font-bold text-white">Add-ons</h2><ul className="mt-4 divide-y divide-white/10">{services.addons.map((service, index) => <li key={`${service.name}-${index}`} className="flex justify-between gap-3 py-3 text-sm"><span className="text-zinc-200">{service.name}</span>{service.price !== null && <span className="font-mono text-white">{money(service.price)}</span>}</li>)}</ul></section>}
-    {services.operatingHours && <p className="mt-5 text-sm text-zinc-400">Published hours: {services.operatingHours.open}–{services.operatingHours.close} {services.timeZone ?? '(time zone unavailable)'}. Confirm availability with the salon.</p>}
-    <p className="mt-7 border-t border-white/10 pt-4 text-xs text-zinc-500">Source: Pawtrackr public booking catalog. Online appointment requests are not yet enabled on this live view.</p>
+    {services.operatingHours && <p className="mt-5 text-sm text-zinc-400">Published hours: {services.operatingHours.open}–{services.operatingHours.close} {services.timeZone ?? '(time zone unavailable)'}.</p>}
+    {canBook && services.timeZone
+      ? <BookingForm slug={salon.slug} salonName={salon.name} services={bookable} timeZone={services.timeZone} hours={services.operatingHours} />
+      : <p className="glass-card mt-8 p-5 text-sm text-zinc-300">Online booking is not open for this salon yet. Please contact the salon to make an appointment.</p>}
+    <p className="mt-7 border-t border-white/10 pt-4 text-xs text-zinc-500">Source: Pawtrackr public booking catalog.</p>
   </main>;
 }

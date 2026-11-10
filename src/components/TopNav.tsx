@@ -182,6 +182,13 @@ export function TopNav() {
               )}
             </button>}
 
+            <Link
+              href="/signup"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-periwinkle-400 px-3 py-2 text-xs font-bold text-obsidian-950 transition hover:bg-periwinkle-300"
+            >
+              <span>Salon sign in</span>
+            </Link>
+
             {!isSourceBacked && <Link
               href="/login"
               aria-label="Station PIN"

@@ -45,7 +45,7 @@ export type LiveReservationDay = {
   source: 'supabase_visits';
   business_id: string;
   date: string;
-  timezone: 'UTC';
+  timezone: string;
   as_of: string;
   reservations: LiveReservation[];
   active_count: number;
@@ -126,6 +126,37 @@ export function salonLocalDate(instant: Date, timeZone: string): string | null {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(instant).map((part) => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+// The UTC instants that bound one salon-local calendar day: [start, end).
+// A day is 23 or 25 hours long when the clocks change, and in a few zones local
+// midnight does not exist, so the bounds are found by asking which local date
+// each instant falls on rather than by adding 24 hours to a parsed midnight.
+export function salonLocalDayRange(date: string, timeZone: string): { start: string; end: string } | null {
+  if (!/^\d{4}-\d\d-\d\d$/.test(date) || !validSalonTimeZone(timeZone)) return null;
+  const utcMidnight = Date.parse(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(utcMidnight) || new Date(utcMidnight).toISOString().slice(0, 10) !== date) return null;
+  const nextDate = new Date(utcMidnight + 86_400_000).toISOString().slice(0, 10);
+  const firstInstantOn = (target: string, around: number): number | null => {
+    for (let offset = -15 * 60; offset <= 15 * 60; offset += 15) {
+      const instant = around + offset * 60_000;
+      if (salonLocalDate(new Date(instant), timeZone) === target &&
+          salonLocalDate(new Date(instant - 60_000), timeZone) !== target) return instant;
+    }
+    return null;
+  };
+  const start = firstInstantOn(date, utcMidnight);
+  const end = firstInstantOn(nextDate, utcMidnight + 86_400_000);
+  if (start === null || end === null || end <= start) return null;
+  return { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
+}
+
+export function salonLocalMinute(instant: Date, timeZone: string): number | null {
+  if (!validSalonTimeZone(timeZone) || !Number.isFinite(instant.getTime())) return null;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(instant).map((part) => [part.type, part.value]));
+  return Number(parts.hour) * 60 + Number(parts.minute);
 }
 
 export type StaffShiftWindow = {
@@ -256,17 +287,18 @@ function normalizeBookingOptions(raw: unknown): LiveBookingOptions {
 }
 
 export function normalizeLiveReservationDay(input: unknown, expectedDate: string): LiveReservationDay {
-  if (!object(input) || input.source !== 'supabase_visits' || input.timezone !== 'UTC' ||
+  if (!object(input) || input.source !== 'supabase_visits' || !validSalonTimeZone(input.timezone) ||
       input.date !== expectedDate || typeof input.business_id !== 'string' || !uuid.test(input.business_id) ||
       !dateTime(input.as_of) || !Array.isArray(input.reservations) || input.reservations.length > 1000) {
     throw new Error('Invalid live reservation day');
   }
+  const timeZone = input.timezone;
   const ids = new Set<string>();
   const reservations: LiveReservation[] = input.reservations.map((raw: unknown) => {
     if (!object(raw) || typeof raw.id !== 'string' || !uuid.test(raw.id) || ids.has(raw.id) ||
         !dateTime(raw.scheduled_time) || !dateTime(raw.reservation_end) ||
         new Date(raw.reservation_end).getTime() <= new Date(raw.scheduled_time).getTime() ||
-        new Date(raw.scheduled_time).toISOString().slice(0, 10) !== expectedDate ||
+        salonLocalDate(new Date(raw.scheduled_time), timeZone) !== expectedDate ||
         typeof raw.status !== 'string' || !statuses.has(raw.status) ||
         !(raw.staff_id === null || (typeof raw.staff_id === 'string' && uuid.test(raw.staff_id))) ||
         !label(raw.service_package) || !label(raw.pet_name) || !label(raw.client_name) || !label(raw.staff_name)) {
@@ -281,7 +313,7 @@ export function normalizeLiveReservationDay(input: unknown, expectedDate: string
     source: 'supabase_visits',
     business_id: input.business_id,
     date: expectedDate,
-    timezone: 'UTC',
+    timezone: timeZone,
     as_of: input.as_of,
     reservations,
     active_count: reservations.filter((item) => !['completed', 'cancelled'].includes(item.status)).length,

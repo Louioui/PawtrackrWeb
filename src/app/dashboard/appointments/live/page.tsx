@@ -4,12 +4,12 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Download, RefreshCw, WifiOff } from 'lucide-react';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
-import { LiveReservation, LiveReservationDay, liveReservationCsv, normalizeLiveReservationDay, resolveSalonLocalTime } from '@/lib/live-reservations';
+import { LiveReservation, LiveReservationDay, liveReservationCsv, normalizeLiveReservationDay, resolveSalonLocalTime, salonLocalDate, salonLocalMinute } from '@/lib/live-reservations';
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
 const shiftDay = (day: string, change: number) => new Date(Date.parse(`${day}T12:00:00Z`) + change * 86400000).toISOString().slice(0, 10);
-const minute = (value: string) => { const date = new Date(value); return date.getUTCHours() * 60 + date.getUTCMinutes(); };
-const time = (value: string) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' }).format(new Date(value));
+const minute = (value: string, zone: string) => salonLocalMinute(new Date(value), zone) ?? 0;
+const time = (value: string, zone: string) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: zone }).format(new Date(value));
 const statusLabel: Record<LiveReservation['status'], string> = {
   booked: 'Booked', dropped_off: 'Dropped off', bathing: 'Bathing', styling: 'Styling',
   ready: 'Ready', completed: 'Completed', cancelled: 'Canceled',
@@ -30,6 +30,9 @@ export default function LiveAppointmentsPage() {
   const [password, setPassword] = useState('');
   const [signedIn, setSignedIn] = useState(false);
   const [snapshot, setSnapshot] = useState<LiveReservationDay | null>(null);
+  // The salon's zone, kept across day changes so labels do not fall back to UTC while a day loads.
+  const [zone, setZone] = useState('UTC');
+  const dayChosen = useRef(false);
   const [phase, setPhase] = useState<'checking' | 'ready' | 'error'>('checking');
   const [message, setMessage] = useState('');
   const [online, setOnline] = useState(true);
@@ -80,6 +83,14 @@ export default function LiveAppointmentsPage() {
       }
       if (!response.ok) throw new Error((body as { error?: string }).error ?? 'Appointments could not be loaded.');
       const next = normalizeLiveReservationDay(body, day);
+      setZone(next.timezone);
+      // The page opens on the browser's UTC date. Once the salon's zone is known,
+      // move to the salon's own "today" unless the user already picked a day.
+      if (!dayChosen.current) {
+        dayChosen.current = true;
+        const salonToday = salonLocalDate(new Date(), next.timezone);
+        if (salonToday && salonToday !== day) { setBookingLocalDate(salonToday); setDay(salonToday); return; }
+      }
       setSnapshot(next); setMessage(''); setPhase('ready');
       setSelectedId((id) => id && next.reservations.some((item) => item.id === id) ? id : null);
     } catch (error) {
@@ -104,7 +115,7 @@ export default function LiveAppointmentsPage() {
   }, [refresh]);
 
   const changeDay = (next: string) => {
-    requestId.current += 1; setSnapshot(null); setSelectedId(null); setStaffFilter('all'); setBookingLocalDate(next); setDay(next);
+    dayChosen.current = true; requestId.current += 1; setSnapshot(null); setSelectedId(null); setStaffFilter('all'); setBookingLocalDate(next); setDay(next);
   };
   const signIn = async (event: FormEvent) => {
     event.preventDefault(); const client = getSupabaseClient(); if (!client) return;
@@ -127,8 +138,8 @@ export default function LiveAppointmentsPage() {
   const rows = useMemo(() => (snapshot?.reservations ?? []).filter((item) => staffFilter === 'all' || (item.staff_id ?? 'unassigned') === staffFilter), [snapshot, staffFilter]);
   const selected = rows.find((item) => item.id === selectedId) ?? null;
   const lanes = staffFilter === 'all' ? staff : staff.filter(([id]) => id === staffFilter);
-  const firstMinute = rows.length ? Math.min(...rows.map((item) => minute(item.scheduled_time))) : 480;
-  const lastMinute = rows.length ? Math.max(...rows.map((item) => Math.min(1440, minute(item.scheduled_time) + (Date.parse(item.reservation_end) - Date.parse(item.scheduled_time)) / 60000))) : 1080;
+  const firstMinute = rows.length ? Math.min(...rows.map((item) => minute(item.scheduled_time, zone))) : 480;
+  const lastMinute = rows.length ? Math.max(...rows.map((item) => Math.min(1440, minute(item.scheduled_time, zone) + (Date.parse(item.reservation_end) - Date.parse(item.scheduled_time)) / 60000))) : 1080;
   const axisStart = Math.max(0, Math.floor(firstMinute / 60) * 60 - 60);
   const axisEnd = Math.min(1440, Math.max(axisStart + 360, Math.ceil(lastMinute / 60) * 60 + 60));
   const axisSpan = axisEnd - axisStart;
@@ -241,7 +252,7 @@ export default function LiveAppointmentsPage() {
     <p className="mt-1 text-sm text-zinc-300">{selected.service_package}</p>
     <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
       <dt className="text-zinc-400">Status</dt><dd className="text-white">{statusLabel[selected.status]}</dd>
-      <dt className="text-zinc-400">UTC time</dt><dd className="text-white">{time(selected.scheduled_time)}–{time(selected.reservation_end)}</dd>
+      <dt className="text-zinc-400">{zone} time</dt><dd className="text-white">{time(selected.scheduled_time, zone)}–{time(selected.reservation_end, zone)}</dd>
       <dt className="text-zinc-400">Client</dt><dd className="text-white">{selected.client_name}</dd>
       <dt className="text-zinc-400">Groomer</dt><dd className="text-white">{selected.staff_name}</dd>
       <dt className="text-zinc-400">Source</dt><dd className="text-white">Supabase visit</dd>
@@ -276,7 +287,7 @@ export default function LiveAppointmentsPage() {
     <header className="mt-5">
       <p className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">Authenticated staff schedule</p>
       <h1 className="mt-1 text-3xl font-extrabold text-white">Live appointments</h1>
-      <p className="mt-2 text-sm text-zinc-400">Supabase visits · UTC schedule · signed-in salon only</p>
+      <p className="mt-2 text-sm text-zinc-400">Supabase visits · {zone} schedule · signed-in salon only</p>
     </header>
     {!isSupabaseConfigured && <p role="alert" className="mt-6 rounded-xl border border-amber-500/30 p-4 text-amber-200">This view needs a Pawtrackr Supabase connection.</p>}
     {isSupabaseConfigured && !signedIn && phase !== 'checking' && <form onSubmit={signIn} className="glass-card mt-6 max-w-md space-y-4 p-5">
@@ -288,10 +299,10 @@ export default function LiveAppointmentsPage() {
     </form>}
     {signedIn && <>
       <div className="mt-6 flex flex-wrap items-center gap-2 border-b border-white/10 pb-4">
-        <button type="button" aria-label="Previous UTC day" onClick={() => changeDay(shiftDay(day, -1))} className="min-h-11 min-w-11 rounded-lg border border-white/15 text-white"><ChevronLeft className="mx-auto h-4 w-4" /></button>
-        <label className="sr-only" htmlFor="appointment-day">UTC date</label>
+        <button type="button" aria-label={`Previous ${zone} day`} onClick={() => changeDay(shiftDay(day, -1))} className="min-h-11 min-w-11 rounded-lg border border-white/15 text-white"><ChevronLeft className="mx-auto h-4 w-4" /></button>
+        <label className="sr-only" htmlFor="appointment-day">{zone} date</label>
         <input id="appointment-day" type="date" value={day} onChange={(event) => event.target.value && changeDay(event.target.value)} className="min-h-11 rounded-lg border border-white/15 bg-obsidian-800 px-3 text-white" />
-        <button type="button" aria-label="Next UTC day" onClick={() => changeDay(shiftDay(day, 1))} className="min-h-11 min-w-11 rounded-lg border border-white/15 text-white"><ChevronRight className="mx-auto h-4 w-4" /></button>
+        <button type="button" aria-label={`Next ${zone} day`} onClick={() => changeDay(shiftDay(day, 1))} className="min-h-11 min-w-11 rounded-lg border border-white/15 text-white"><ChevronRight className="mx-auto h-4 w-4" /></button>
         <button type="button" onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm text-white"><RefreshCw className="h-4 w-4" /> Refresh</button>
         {snapshot && <button type="button" onClick={exportCsv} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm text-white"><Download className="h-4 w-4" /> Export visible CSV</button>}
         <span role="status" aria-live="polite" className={`ml-auto text-xs ${online && phase === 'ready' ? 'text-emerald-300' : 'text-amber-300'}`}>
@@ -299,7 +310,7 @@ export default function LiveAppointmentsPage() {
         </span>
       </div>
       {snapshot && <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
-        <span>Source: Supabase visits</span><span>Date: {snapshot.date} UTC</span>
+        <span>Source: Supabase visits</span><span>Date: {snapshot.date} {snapshot.timezone}</span>
         {bookingOptions?.operating_hours && <span>Hours: {bookingOptions.operating_hours.open}–{bookingOptions.operating_hours.close} {bookingOptions.time_zone ?? 'UTC'}</span>}
         <span>Updated: {new Date(snapshot.as_of).toLocaleString('en-US', { timeZone: 'UTC' })} UTC</span>
         <span>{snapshot.active_count} active · {snapshot.completed_count} completed · {snapshot.cancelled_count} canceled</span>
@@ -339,16 +350,16 @@ export default function LiveAppointmentsPage() {
           <button type="button" onClick={() => selectStaffFilter('all')} className={`mb-1 min-h-11 w-full rounded-lg px-3 text-left text-sm ${staffFilter === 'all' ? 'bg-periwinkle-500/20 text-white' : 'text-zinc-300'}`}>All groomers</button>
           {staff.map(([id, name]) => <button key={id} type="button" onClick={() => selectStaffFilter(id)} className={`mb-1 min-h-11 w-full rounded-lg px-3 text-left text-sm ${staffFilter === id ? 'bg-periwinkle-500/20 text-white' : 'text-zinc-300'}`}>{name}</button>)}
         </aside>
-        <section aria-label="UTC appointment schedule" className="min-w-0">
+        <section aria-label={`${zone} appointment schedule`} className="min-w-0">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-bold text-white">{day} <span className="text-sm font-normal text-zinc-400">UTC</span></h2>
+            <h2 className="text-lg font-bold text-white">{day} <span className="text-sm font-normal text-zinc-400">{zone}</span></h2>
             <details ref={filterMenuRef} className="relative lg:hidden"><summary className="min-h-11 cursor-pointer rounded-lg border border-white/15 px-3 py-3 text-sm text-white">Filters {staffFilter !== 'all' ? '· 1' : ''}</summary><div className="absolute right-0 z-10 mt-1 min-w-48 rounded-xl border border-white/15 bg-obsidian-800 p-2 shadow-xl"><button type="button" onClick={() => selectStaffFilter('all')} className="block min-h-11 w-full rounded-lg px-2 text-left text-sm text-white">All groomers</button>{staff.map(([id, name]) => <button key={id} type="button" onClick={() => selectStaffFilter(id)} className="block min-h-11 w-full rounded-lg px-2 text-left text-sm text-white">{name}</button>)}</div></details>
           </div>
           {!snapshot ? <p className="rounded-xl border border-white/10 p-6 text-sm text-zinc-400">{phase === 'checking' ? 'Loading salon appointments…' : 'No server schedule is available.'}</p> : rows.length === 0 ? <p className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-zinc-400">No appointments for this UTC day and groomer filter.</p> : <>
             <section className="live-agenda space-y-2" aria-label="Appointment agenda">
               {rows.map((item) => <div key={item.id} className="space-y-2">
                 <button type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} className={`flex min-h-16 w-full items-center gap-3 rounded-xl border p-3 text-left ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`}>
-                  <span className="w-24 shrink-0 font-mono text-xs text-zinc-200">{time(item.scheduled_time)}<br />{time(item.reservation_end)}</span>
+                  <span className="w-24 shrink-0 font-mono text-xs text-zinc-200">{time(item.scheduled_time, zone)}<br />{time(item.reservation_end, zone)}</span>
                   <span className="min-w-0 flex-1"><strong className="block truncate text-sm text-white">{item.pet_name}</strong><span className="block truncate text-xs text-zinc-300">{item.service_package} · {item.staff_name}</span><span className="block truncate text-xs text-zinc-400">{item.client_name}</span></span>
                   <span className="text-xs font-semibold">{statusLabel[item.status]}</span>
                 </button>
@@ -363,7 +374,7 @@ export default function LiveAppointmentsPage() {
                     const laneRows = rows.filter((item) => (item.staff_id ?? 'unassigned') === id);
                     const trackEnds: number[] = [];
                     const placed = laneRows.map((item) => {
-                      const startMin = minute(item.scheduled_time);
+                      const startMin = minute(item.scheduled_time, zone);
                       const durationMin = Math.max(15, (Date.parse(item.reservation_end) - Date.parse(item.scheduled_time)) / 60000);
                       const endMin = Math.min(1440, startMin + durationMin);
                       let track = trackEnds.findIndex((end) => end <= startMin);
@@ -378,7 +389,7 @@ export default function LiveAppointmentsPage() {
                       return { item, track, leftPct, widthPct };
                     });
                     const laneHeight = Math.max(96, placed.length ? trackEnds.length * 72 + 24 : 96);
-                    return <div key={id} className="flex border-b border-white/10" style={{ minHeight: `${laneHeight}px` }}><div className="w-32 shrink-0 p-3 text-sm font-semibold text-zinc-200">{name}</div><div className="relative flex-1" style={{ minHeight: `${laneHeight}px`, backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.08) 1px, transparent 1px)", backgroundSize: `${100 / (axisSpan / 60)}% 100%` }}>{placed.map(({ item, track, leftPct, widthPct }) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} title={`${item.pet_name}: ${time(item.scheduled_time)}–${time(item.reservation_end)} UTC`} className={`absolute h-16 overflow-hidden rounded-lg border px-2 text-left text-xs ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`} style={{ top: `${12 + track * 72}px`, left: `${leftPct}%`, width: `${widthPct}%` }}><strong className="block truncate text-white">{item.pet_name}</strong><span className="block truncate">{statusLabel[item.status]}</span></button>)}</div></div>;
+                    return <div key={id} className="flex border-b border-white/10" style={{ minHeight: `${laneHeight}px` }}><div className="w-32 shrink-0 p-3 text-sm font-semibold text-zinc-200">{name}</div><div className="relative flex-1" style={{ minHeight: `${laneHeight}px`, backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.08) 1px, transparent 1px)", backgroundSize: `${100 / (axisSpan / 60)}% 100%` }}>{placed.map(({ item, track, leftPct, widthPct }) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} title={`${item.pet_name}: ${time(item.scheduled_time, zone)}–${time(item.reservation_end, zone)} UTC`} className={`absolute h-16 overflow-hidden rounded-lg border px-2 text-left text-xs ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`} style={{ top: `${12 + track * 72}px`, left: `${leftPct}%`, width: `${widthPct}%` }}><strong className="block truncate text-white">{item.pet_name}</strong><span className="block truncate">{statusLabel[item.status]}</span></button>)}</div></div>;
                   })}
                 </div>
               </div>

@@ -55,27 +55,23 @@ export function middleware(req: NextRequest) {
   const res = NextResponse.next();
 
   // 3. Hardened Multi-Tenant & OWASP Security Headers (#45)
+  const staffApis = ['/api/reservations', '/api/analytics', '/api/clients', '/api/settings', '/api/shifts',
+    '/api/onboarding', '/api/payments/intent'];
+  const staffPages = ['/dashboard/analytics/live', '/dashboard/appointments/live', '/dashboard/clients/live',
+    '/dashboard/settings/live', '/signup'];
+  const isWrite = req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
   const dataMode =
-    (pathname === '/api/reservations' ||
-      pathname === '/api/analytics' ||
-      pathname === '/api/clients' ||
-      pathname === '/api/settings' ||
-      pathname === '/api/shifts') &&
-    (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE')
-      ? 'authenticated-write'
-      : pathname === '/api/analytics' ||
-          pathname === '/api/reservations' ||
-          pathname === '/api/clients' ||
-          pathname === '/api/settings' ||
-          pathname === '/api/shifts' ||
-          pathname === '/dashboard/analytics/live' ||
-          pathname === '/dashboard/appointments/live' ||
-          pathname === '/dashboard/clients/live' ||
-          pathname === '/dashboard/settings/live'
+    staffApis.includes(pathname)
+      ? (isWrite ? 'authenticated-write' : 'authenticated-read')
+      : staffPages.includes(pathname)
         ? 'authenticated-read'
-        : pathname.startsWith('/portal/live')
-          ? 'public-catalog'
-          : 'demo-only';
+        : pathname === '/api/webhooks/stripe'
+          ? 'verified-webhook'
+          : pathname.startsWith('/api/public/')
+            ? 'public-booking'
+            : pathname.startsWith('/portal/live')
+              ? 'public-catalog'
+              : 'demo-only';
   res.headers.set('x-pawtrackr-data-mode', dataMode);
   res.headers.set('x-frame-options', 'SAMEORIGIN');
   res.headers.set('x-content-type-options', 'nosniff');

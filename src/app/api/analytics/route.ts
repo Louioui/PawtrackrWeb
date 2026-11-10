@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   centsToDatabaseMoney,
   databaseMoneyToCents,
-  utcDailyCheckoutTotals,
+  settlementTotals, utcDailyCheckoutTotals,
   validateLiveCheckoutInput,
 } from '@/lib/production-analytics';
 
@@ -38,11 +38,11 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   start.setUTCDate(start.getUTCDate() - days + 1);
-  const rows: { amount: unknown; created_at: string; status: string }[] = [];
+  const rows: { amount: unknown; created_at: string; status: string; settlement_status: unknown }[] = [];
   const pageSize = 500;
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase.from('transactions')
-      .select('id,amount,created_at,status')
+      .select('id,amount,created_at,status,settlement_status')
       .eq('business_id', staff.business_id)
       .eq('status', 'completed')
       .gte('created_at', start.toISOString())
@@ -104,6 +104,7 @@ export async function GET(req: NextRequest) {
     return reply({
       source: 'supabase_recorded_checkouts',
       settlement_confirmed: false,
+      settlement: settlementTotals(rows),
       business_id: staff.business_id,
       as_of: now.toISOString(),
       timezone: 'UTC',

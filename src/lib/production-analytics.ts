@@ -112,3 +112,26 @@ export function utcDailyCheckoutTotals(
   }
   return daily;
 }
+
+export type SettlementState = 'unsettled' | 'pending' | 'settled' | 'failed' | 'refunded';
+export type SettlementTotals = Record<SettlementState, { cents: number; count: number }>;
+
+// Splits recorded checkouts by what Stripe has confirmed. Only "settled" is
+// money a verified payment event says arrived; everything else is the salon's
+// own record. A row with an unreadable amount or state fails the whole summary
+// rather than being silently dropped from the totals.
+export function settlementTotals(rows: readonly { amount: unknown; settlement_status: unknown }[]): SettlementTotals {
+  const totals: SettlementTotals = {
+    unsettled: { cents: 0, count: 0 }, pending: { cents: 0, count: 0 }, settled: { cents: 0, count: 0 },
+    failed: { cents: 0, count: 0 }, refunded: { cents: 0, count: 0 },
+  };
+  for (const row of rows) {
+    const cents = databaseMoneyToCents(row.amount);
+    const state = row.settlement_status;
+    if (cents === null || typeof state !== 'string' || !Object.hasOwn(totals, state)) throw new Error('Invalid settlement row');
+    const bucket = totals[state as SettlementState];
+    bucket.cents += cents;
+    bucket.count += 1;
+  }
+  return totals;
+}

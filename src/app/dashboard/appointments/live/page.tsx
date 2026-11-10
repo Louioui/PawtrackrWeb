@@ -232,6 +232,7 @@ export default function LiveAppointmentsPage() {
       <div className="flex flex-wrap items-center gap-4">
         <Link href="/dashboard" className="text-sm text-periwinkle-300 hover:text-white">← Demo command center</Link>
         <Link href="/dashboard/clients/live" className="text-sm text-periwinkle-300 hover:text-white">Salon clients & pets →</Link>
+        <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300 hover:text-white">Live catalog & groomers →</Link>
         <Link href="/dashboard/analytics/live" className="text-sm text-periwinkle-300 hover:text-white">Recorded checkout analytics →</Link>
       </div>
       {signedIn && <button type="button" onClick={signOut} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-200">Sign out</button>}

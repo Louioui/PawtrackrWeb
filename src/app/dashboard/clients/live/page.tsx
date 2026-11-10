@@ -20,9 +20,12 @@ export default function LiveClientsPage() {
   const [petName, setPetName] = useState('');
   const [breed, setBreed] = useState('');
   const [weightLbs, setWeightLbs] = useState('');
+  const [weightPetId, setWeightPetId] = useState('');
+  const [updatedWeightLbs, setUpdatedWeightLbs] = useState('');
   const [saving, setSaving] = useState(false);
   const requestId = useRef(0);
   const intakeMenuRef = useRef<HTMLDetailsElement>(null);
+  const weightMenuRef = useRef<HTMLDetailsElement>(null);
 
   const refresh = useCallback(async () => {
     const current = ++requestId.current;
@@ -121,10 +124,51 @@ export default function LiveClientsPage() {
     }
   };
 
+  useEffect(() => {
+    if (!roster?.pets.length) {
+      setWeightPetId('');
+      return;
+    }
+    if (!roster.pets.some((item) => item.id === weightPetId)) {
+      setWeightPetId(roster.pets[0].id);
+    }
+  }, [roster, weightPetId]);
+
+  const updatePetWeight = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!weightPetId || saving) return;
+    const client = getSupabaseClient();
+    if (!client) return;
+    setSaving(true); setMessage('');
+    try {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session) { setSignedIn(false); setRoster(null); setMessage('Your session expired. Sign in again.'); return; }
+      const response = await fetch('/api/clients', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          pet_id: weightPetId,
+          weight_lbs: Number(updatedWeightLbs),
+        }),
+      });
+      const body: unknown = await response.json();
+      if (response.status === 401) { setSignedIn(false); setRoster(null); setMessage('Your session expired. Sign in again.'); return; }
+      if (!response.ok) throw new Error((body as { error?: string }).error ?? 'The pet weight could not be updated.');
+      setUpdatedWeightLbs('');
+      weightMenuRef.current?.removeAttribute('open');
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The pet weight could not be updated.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return <main className="mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6">
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-4">
         <Link href="/dashboard/appointments/live" className="text-sm text-periwinkle-300 hover:text-white">← Live appointments</Link>
+        <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300 hover:text-white">Live catalog & groomers</Link>
         <Link href="/dashboard/analytics/live" className="text-sm text-periwinkle-300 hover:text-white">Recorded checkout analytics →</Link>
       </div>
       {signedIn && <button type="button" onClick={signOut} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-200">Sign out</button>}
@@ -179,6 +223,23 @@ export default function LiveClientsPage() {
         </form>
       </details>
 
+      {roster && roster.pets.length > 0 && <details ref={weightMenuRef} className="mb-5 rounded-xl border border-white/10 bg-obsidian-800/60 p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-periwinkle-200">Log pet weight</summary>
+        <form onSubmit={updatePetWeight} className="mt-3 grid gap-3 sm:grid-cols-3">
+          <label className="block text-xs text-zinc-300">Pet
+            <select value={weightPetId} onChange={(event) => setWeightPetId(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white">
+              {roster.pets.map((item) => <option key={item.id} value={item.id}>{item.pet_name} · {item.client_name}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs text-zinc-300">Observed weight in lbs
+            <input type="number" required min="0.01" max="300" step="0.01" value={updatedWeightLbs} onChange={(event) => setUpdatedWeightLbs(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 font-mono text-sm text-white" />
+          </label>
+          <div className="flex items-end">
+            <button type="submit" disabled={saving} className="min-h-11 w-full rounded-lg bg-periwinkle-500 px-5 text-sm font-bold text-obsidian-950">{saving ? 'Saving…' : 'Update weight'}</button>
+          </div>
+        </form>
+      </details>}
+
       <section className="glass-card p-5 sm:p-6" aria-labelledby="roster-heading">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 id="roster-heading" className="text-xl font-bold text-white">Active salon pet roster</h2>
@@ -186,7 +247,7 @@ export default function LiveClientsPage() {
         </div>
         {!roster ? <p className="mt-4 text-sm text-zinc-400">{phase === 'checking' ? 'Loading salon roster…' : 'No server roster is available.'}</p>
           : roster.pets.length === 0 ? <p className="mt-4 rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-zinc-400">No pets are registered for this salon yet.</p>
-          : <div className="mt-4 overflow-x-auto">
+          : <div tabIndex={0} role="region" aria-label="Salon pet roster table" className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <caption className="sr-only">Registered salon pets and pet parents</caption>
               <thead>

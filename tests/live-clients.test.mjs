@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeLiveClientRoster, validateClientPetIntake } from '../src/lib/live-clients.ts';
+import { normalizeLiveClientRoster, validateClientPetIntake, validatePetWeightUpdate } from '../src/lib/live-clients.ts';
 
 test('validates client and pet intake fields and rejects invalid phones or weights', () => {
   const valid = validateClientPetIntake({
@@ -80,4 +80,30 @@ test('normalizes live client roster and sorts pets by name', () => {
   });
   assert.deepEqual(roster.pets.map((p) => p.pet_name), ['Bello', 'Zoe']);
   assert.equal(roster.pets[1].weight_lbs, 18.25);
+});
+
+test('validates pet weight updates and rejects out-of-range or malformed values', () => {
+  assert.deepEqual(validatePetWeightUpdate({
+    pet_id: 'bbbbbbbb-1111-4111-8111-111111111111',
+    weight_lbs: 33.4,
+  }), {
+    pet_id: 'bbbbbbbb-1111-4111-8111-111111111111',
+    weight_lbs: '33.40',
+  });
+  assert.equal(validatePetWeightUpdate({
+    pet_id: 'not-a-uuid',
+    weight_lbs: 25,
+  }), null);
+  assert.equal(validatePetWeightUpdate({
+    pet_id: 'bbbbbbbb-1111-4111-8111-111111111111',
+    weight_lbs: 0,
+  }), null);
+  assert.equal(validatePetWeightUpdate({
+    pet_id: 'bbbbbbbb-1111-4111-8111-111111111111',
+    weight_lbs: 300.01,
+  }), null);
+  assert.equal(validatePetWeightUpdate({
+    pet_id: 'bbbbbbbb-1111-4111-8111-111111111111',
+    weight_lbs: '12.345',
+  }), null);
 });

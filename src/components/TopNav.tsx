@@ -23,8 +23,9 @@ export function TopNav() {
   const isLiveAnalytics = pathname === '/dashboard/analytics/live';
   const isLiveAppointments = pathname === '/dashboard/appointments/live';
   const isLiveClients = pathname === '/dashboard/clients/live';
+  const isLiveSettings = pathname === '/dashboard/settings/live';
   const isLiveCatalog = pathname?.startsWith('/portal/live') ?? false;
-  const isSourceBacked = isLiveAnalytics || isLiveAppointments || isLiveClients || isLiveCatalog;
+  const isSourceBacked = isLiveAnalytics || isLiveAppointments || isLiveClients || isLiveSettings || isLiveCatalog;
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [offlineVanSim, setOfflineVanSim] = useState(false);
 
@@ -109,7 +110,7 @@ export function TopNav() {
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400">
-                {isLiveAnalytics ? 'Authenticated staff analytics' : isLiveAppointments ? 'Authenticated staff appointments' : isLiveClients ? 'Authenticated staff roster' : isLiveCatalog ? 'Published salon catalog' : 'Pet grooming workspace • Demo preview'}
+                {isLiveAnalytics ? 'Authenticated staff analytics' : isLiveAppointments ? 'Authenticated staff appointments' : isLiveClients ? 'Authenticated staff roster' : isLiveSettings ? 'Authenticated salon configuration' : isLiveCatalog ? 'Published salon catalog' : 'Pet grooming workspace • Demo preview'}
               </p>
             </div>
           </Link>

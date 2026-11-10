@@ -177,6 +177,12 @@ export default function SalonSettingsCatalogBuilderPage() {
 
         <div className="flex items-center gap-2">
           <Link
+            href="/dashboard/settings/live"
+            className="rounded-xl border border-periwinkle-400/40 bg-periwinkle-500/15 px-3.5 py-2 text-xs font-semibold text-periwinkle-200 hover:text-white"
+          >
+            Live Catalog & Groomers (Supabase) →
+          </Link>
+          <Link
             href="/dashboard/payroll"
             className="rounded-xl border border-white/[0.1] bg-obsidian-800 px-3.5 py-2 text-xs font-semibold text-zinc-300 hover:text-white"
           >

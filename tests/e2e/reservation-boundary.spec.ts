@@ -72,6 +72,58 @@ test('staff reservation endpoint requires a real session and validates the reque
     data: { client_name: 'Sophia', client_phone: '123', pet_name: 'Bello', breed: 'Poodle' },
   });
   expect(malformedClientsWrite.status()).toBe(400);
+
+  const missingClientsPatch = await request.patch('/api/clients', {
+    data: { pet_id: '22222222-2222-4222-8222-222222222222', weight_lbs: 34.5 },
+  });
+  expect(missingClientsPatch.status()).toBe(401);
+  expect(missingClientsPatch.headers()['x-pawtrackr-data-mode']).toBe('authenticated-write');
+
+  const malformedClientsPatch = await request.patch('/api/clients', {
+    headers: { Authorization: 'Bearer invalid-token' },
+    data: { pet_id: '22222222-2222-4222-8222-222222222222', weight_lbs: -5 },
+  });
+  expect(malformedClientsPatch.status()).toBe(400);
+
+  const missingSettingsRead = await request.get('/api/settings');
+  expect(missingSettingsRead.status()).toBe(401);
+  expect(missingSettingsRead.headers()['x-pawtrackr-data-mode']).toBe('authenticated-read');
+
+  const missingSettingsPatch = await request.patch('/api/settings', {
+    data: {
+      tax_rate: 8.25,
+      booking_buffer_mins: 15,
+      operating_hours: { open: '08:00', close: '18:00' },
+      packages: [],
+      addons: [],
+    },
+  });
+  expect(missingSettingsPatch.status()).toBe(401);
+  expect(missingSettingsPatch.headers()['x-pawtrackr-data-mode']).toBe('authenticated-write');
+
+  const malformedSettingsPatch = await request.patch('/api/settings', {
+    headers: { Authorization: 'Bearer invalid-token' },
+    data: {
+      tax_rate: 8.25,
+      booking_buffer_mins: 15,
+      operating_hours: { open: '18:00', close: '08:00' },
+      packages: [],
+      addons: [],
+    },
+  });
+  expect(malformedSettingsPatch.status()).toBe(400);
+
+  const missingSettingsPost = await request.post('/api/settings', {
+    data: { name: 'Elena Vance', specialty: 'Hand-Scissor' },
+  });
+  expect(missingSettingsPost.status()).toBe(401);
+  expect(missingSettingsPost.headers()['x-pawtrackr-data-mode']).toBe('authenticated-write');
+
+  const malformedSettingsPost = await request.post('/api/settings', {
+    headers: { Authorization: 'Bearer invalid-token' },
+    data: { name: '   ' },
+  });
+  expect(malformedSettingsPost.status()).toBe(400);
 });
 
 test('live appointments requires staff sign-in and fits narrow mobile viewports', async ({ page }) => {
@@ -362,8 +414,9 @@ test('live appointments supports desktop, portrait, and landscape schedules with
   await expect(page.getByRole('status')).toContainText('Unavailable');
 });
 
-test('live client and pet roster supports staff intake, offline retention, and revocation', async ({ page }) => {
+test('live client and pet roster supports staff intake, weight updates, offline retention, and revocation', async ({ page }) => {
   let addedPet = false;
+  let belloWeight = 32.5;
   let revoked = false;
   await page.addInitScript(() => {
     localStorage.setItem('sb-jdauajfcmsaamhgyklng-auth-token', JSON.stringify({
@@ -386,6 +439,24 @@ test('live client and pet roster supports staff intake, offline retention, and r
 
   await page.route('**/api/clients', async (route) => {
     expect(route.request().headers().authorization).toBe('Bearer fixture.jwt.token');
+    if (route.request().method() === 'PATCH') {
+      const payload = JSON.parse(route.request().postData() ?? '{}') as { pet_id: string; weight_lbs: number };
+      belloWeight = Number(payload.weight_lbs);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          pet: {
+            id: payload.pet_id,
+            client_id: 'cccccccc-1111-4111-8111-111111111111',
+            name: 'Bello',
+            breed: 'Goldendoodle',
+            weight_lbs: belloWeight.toFixed(2),
+          },
+        }),
+      });
+      return;
+    }
     if (route.request().method() === 'POST') {
       addedPet = true;
       await route.fulfill({
@@ -412,7 +483,7 @@ test('live client and pet roster supports staff intake, offline retention, and r
         client_id: 'cccccccc-1111-4111-8111-111111111111',
         pet_name: 'Bello',
         breed: 'Goldendoodle',
-        weight_lbs: 32.5,
+        weight_lbs: belloWeight,
         client_name: 'Sophia Chen-Alvarez',
         client_phone: '415-890-4829',
         client_email: 'sophia@example.invalid',
@@ -459,9 +530,125 @@ test('live client and pet roster supports staff intake, offline retention, and r
   await expect(page.getByRole('cell', { name: 'Samoyed' })).toBeVisible();
   await expect(page.getByRole('cell', { name: '48.5 lbs' })).toBeVisible();
 
+  await page.locator('summary').filter({ hasText: 'Log pet weight' }).click();
+  await page.getByLabel('Observed weight in lbs').fill('34.75');
+  await page.getByRole('button', { name: 'Update weight' }).click();
+  await expect(page.getByRole('cell', { name: '34.75 lbs' })).toBeVisible();
+
   revoked = true;
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'An active staff membership is required.' })).toBeVisible();
   await expect(page.getByRole('status')).toContainText('Roster unavailable');
+});
+
+test('live salon settings supports catalog updates, groomer registration, and membership revocation', async ({ page }) => {
+  let savedPackage = false;
+  let addedGroomer = false;
+  let revoked = false;
+  await page.addInitScript(() => {
+    localStorage.setItem('sb-jdauajfcmsaamhgyklng-auth-token', JSON.stringify({
+      access_token: 'fixture.jwt.token',
+      refresh_token: 'fixture-refresh',
+      token_type: 'bearer',
+      expires_in: 3600,
+      expires_at: 1893456000,
+      user: {
+        id: 'aaaaaaaa-0000-4000-8000-000000000000',
+        aud: 'authenticated',
+        role: 'authenticated',
+        email: 'fixture@example.invalid',
+        app_metadata: {},
+        user_metadata: {},
+        created_at: '2026-11-09T00:00:00Z',
+      },
+    }));
+  });
+
+  await page.route('**/api/settings', async (route) => {
+    expect(route.request().headers().authorization).toBe('Bearer fixture.jwt.token');
+    if (route.request().method() === 'PATCH') {
+      savedPackage = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ config: { business_id: '11111111-1111-4111-8111-111111111111' } }),
+      });
+      return;
+    }
+    if (route.request().method() === 'POST') {
+      addedGroomer = true;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          groomer: {
+            id: 'dddddddd-1111-4111-8111-111111111112',
+            name: 'Sora Takahashi',
+            specialty: 'Asian Fusion',
+            is_active: true,
+          },
+        }),
+      });
+      return;
+    }
+    if (revoked) {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'An active staff membership is required.' }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        source: 'supabase_business_settings',
+        business_id: '11111111-1111-4111-8111-111111111111',
+        as_of: '2026-11-09T14:00:00Z',
+        salon_name: 'Bespoke Grooming Studio',
+        slug: 'bespoke-grooming',
+        city_state: 'San Francisco, CA',
+        subscription_status: 'active',
+        tax_rate: 8.63,
+        currency: 'USD',
+        booking_buffer_mins: 15,
+        operating_hours: { open: '08:00', close: '18:00' },
+        packages: [
+          { id: 'bath-brush', name: 'Bath & Brush', price: 65, durationMinutes: 60 },
+          ...(savedPackage ? [{ id: 'full-scissor', name: 'Full Scissor Finish', price: 135, durationMinutes: 120 }] : []),
+        ],
+        addons: [{ id: 'teeth-gel', name: 'Teeth Gel', price: 18 }],
+        groomers: [
+          { id: 'dddddddd-1111-4111-8111-111111111111', name: 'Elena Vance', specialty: 'Hand-Scissor', is_active: true },
+          ...(addedGroomer ? [{ id: 'dddddddd-1111-4111-8111-111111111112', name: 'Sora Takahashi', specialty: 'Asian Fusion', is_active: true }] : []),
+        ],
+      }),
+    });
+  });
+
+  await page.goto('/dashboard/settings/live');
+  await expect(page.getByRole('heading', { name: 'Live catalog, hours & groomers' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bespoke Grooming Studio' })).toBeVisible();
+  await expect(page.getByText('1 package · 1 add-on')).toBeVisible();
+
+  await page.getByLabel('Package name').fill('Full Scissor Finish');
+  await page.getByLabel('Price (USD)', { exact: true }).fill('135');
+  await page.getByLabel('Duration (mins)').fill('120');
+  await page.getByRole('button', { name: 'Add package' }).click();
+  await page.getByRole('button', { name: 'Save salon settings' }).click();
+  await expect(page.getByText('Salon catalog and operating hours saved to Supabase.')).toBeVisible();
+  await expect(page.getByText('2 packages · 1 add-on')).toBeVisible();
+
+  await page.locator('summary').filter({ hasText: 'Register groomer' }).click();
+  await page.getByLabel('Groomer name').fill('Sora Takahashi');
+  await page.getByLabel('Specialty (optional)').fill('Asian Fusion');
+  await page.getByRole('button', { name: 'Save groomer' }).click();
+  await expect(page.getByText('2 groomers')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Asian Fusion' })).toBeVisible();
+
+  revoked = true;
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'An active staff membership is required.' })).toBeVisible();
 });
 

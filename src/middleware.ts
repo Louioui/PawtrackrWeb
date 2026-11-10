@@ -58,15 +58,18 @@ export function middleware(req: NextRequest) {
   const dataMode =
     (pathname === '/api/reservations' ||
       pathname === '/api/analytics' ||
-      pathname === '/api/clients') &&
+      pathname === '/api/clients' ||
+      pathname === '/api/settings') &&
     (req.method === 'POST' || req.method === 'PATCH')
       ? 'authenticated-write'
       : pathname === '/api/analytics' ||
           pathname === '/api/reservations' ||
           pathname === '/api/clients' ||
+          pathname === '/api/settings' ||
           pathname === '/dashboard/analytics/live' ||
           pathname === '/dashboard/appointments/live' ||
-          pathname === '/dashboard/clients/live'
+          pathname === '/dashboard/clients/live' ||
+          pathname === '/dashboard/settings/live'
         ? 'authenticated-read'
         : pathname.startsWith('/portal/live')
           ? 'public-catalog'

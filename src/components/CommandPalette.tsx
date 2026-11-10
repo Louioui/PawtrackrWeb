@@ -132,6 +132,11 @@ export function CommandPalette({
       icon: Users,
     },
     {
+      label: 'Live Catalog, Hours & Groomers (Supabase RLS)',
+      href: '/dashboard/settings/live',
+      icon: Settings,
+    },
+    {
       label: 'Live Checkout Analytics (Supabase RLS)',
       href: '/dashboard/analytics/live',
       icon: Command,

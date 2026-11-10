@@ -223,6 +223,7 @@ export default function LiveSalonAnalyticsPage() {
       <div className="flex flex-wrap items-center gap-4">
         <Link href="/dashboard/analytics" className="text-sm text-periwinkle-300 hover:text-white">← Demo analytics</Link>
         <Link href="/dashboard/appointments/live" className="text-sm text-periwinkle-300 hover:text-white">Live appointments →</Link>
+        <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300 hover:text-white">Live catalog & groomers →</Link>
       </div>
       {signedIn && <button type="button" onClick={signOut} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-200">Sign out</button>}
     </div>

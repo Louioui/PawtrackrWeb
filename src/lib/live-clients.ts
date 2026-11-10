@@ -27,9 +27,30 @@ export type ValidatedClientPetIntake = {
   weight_lbs: string | null;
 };
 
+export type ValidatedPetWeightUpdate = {
+  pet_id: string;
+  weight_lbs: string;
+};
+
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const label = (value: unknown, max = 120): value is string => typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max;
+
+export function validatePetWeightUpdate(input: unknown): ValidatedPetWeightUpdate | null {
+  if (!object(input)) return null;
+  const { pet_id, weight_lbs } = input;
+  if (typeof pet_id !== 'string' || !uuid.test(pet_id)) return null;
+  if (typeof weight_lbs !== 'number' && typeof weight_lbs !== 'string') return null;
+  const text = String(weight_lbs).trim();
+  const parsed = Number(text);
+  if (!/^\d{1,3}(\.\d{1,2})?$/.test(text) || !Number.isFinite(parsed) || parsed <= 0 || parsed > 300) {
+    return null;
+  }
+  return {
+    pet_id,
+    weight_lbs: parsed.toFixed(2),
+  };
+}
 
 export function validateClientPetIntake(input: unknown): ValidatedClientPetIntake | null {
   if (!object(input)) return null;

@@ -252,7 +252,12 @@ export default function LiveSalonAnalyticsPage() {
                 const nextId = event.target.value;
                 setVisitId(nextId);
                 const found = eligibleVisits.find((item) => item.id === nextId);
-                if (found) setSubtotalCents(found.quoted_cents);
+                if (found) {
+                  setSubtotalCents(found.quoted_cents);
+                  setDiscountCents(0);
+                  setTaxCents(0);
+                  setTipCents(0);
+                }
               }}
               className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white"
             >

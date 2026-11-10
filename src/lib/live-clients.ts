@@ -50,8 +50,10 @@ export function validateClientPetIntake(input: unknown): ValidatedClientPetIntak
 
   let normalizedWeight: string | null = null;
   if (weight_lbs !== undefined && weight_lbs !== null && String(weight_lbs).trim() !== '') {
-    const parsed = typeof weight_lbs === 'number' ? weight_lbs : Number(weight_lbs);
-    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 300 || Math.round(parsed * 100) !== parsed * 100) {
+    if (typeof weight_lbs !== 'number' && typeof weight_lbs !== 'string') return null;
+    const text = String(weight_lbs).trim();
+    const parsed = Number(text);
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(text) || !Number.isFinite(parsed) || parsed <= 0 || parsed > 300) {
       return null;
     }
     normalizedWeight = parsed.toFixed(2);

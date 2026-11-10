@@ -32,6 +32,20 @@ test('validates client and pet intake fields and rejects invalid phones or weigh
     breed: 'Poodle',
     weight_lbs: -5,
   }), null);
+  assert.equal(validateClientPetIntake({
+    client_name: 'Sophia',
+    client_phone: '4158904829',
+    pet_name: 'Bello',
+    breed: 'Poodle',
+    weight_lbs: 1.15,
+  })?.weight_lbs, '1.15');
+  assert.equal(validateClientPetIntake({
+    client_name: 'Sophia',
+    client_phone: '4158904829',
+    pet_name: 'Bello',
+    breed: 'Poodle',
+    weight_lbs: 4.35,
+  })?.weight_lbs, '4.35');
 });
 
 test('normalizes live client roster and sorts pets by name', () => {

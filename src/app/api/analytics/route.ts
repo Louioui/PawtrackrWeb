@@ -182,10 +182,18 @@ export async function POST(req: NextRequest) {
     return reply({ error: 'The checkout record could not be saved.' }, 502);
   }
 
-  await supabase.from('visits')
+  const { data: updatedVisit, error: visitUpdateError } = await supabase.from('visits')
     .update({ status: 'completed' })
     .eq('business_id', staff.business_id)
-    .eq('id', checkout.visit_id);
+    .eq('id', checkout.visit_id)
+    .select('id')
+    .maybeSingle();
+  if (visitUpdateError || !updatedVisit) {
+    return reply({
+      error: 'The checkout was recorded, but the visit status could not be updated.',
+      transaction: createdTx,
+    }, 502);
+  }
 
   return reply({
     transaction: createdTx,

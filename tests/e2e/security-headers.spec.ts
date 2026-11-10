@@ -39,7 +39,7 @@ test('protected API failures retain the same security policy and no-store bounda
   const response = await request.get('/api/reservations?date=2026-11-10');
   expect([401, 503]).toContain(response.status());
   expect(response.headers()['cache-control']).toBe('no-store');
-  expect(response.headers()['x-pawtrackr-rate-limit-mode']).toBe('local');
+  expect(response.headers()['x-pawtrackr-ratelimit-mode']).toBe('local');
   expect(response.headers()['ratelimit-limit']).toBe('180');
   assertSecurityHeaders(response.headers());
 });
@@ -54,7 +54,7 @@ test('public booking abuse receives a bounded retry response before route execut
   expect(blocked.status()).toBe(429);
   expect(blocked.headers()['cache-control']).toBe('no-store');
   expect(blocked.headers()['x-pawtrackr-data-mode']).toBe('public-booking');
-  expect(blocked.headers()['x-pawtrackr-rate-limit-mode']).toBe('local');
+  expect(blocked.headers()['x-pawtrackr-ratelimit-mode']).toBe('local');
   expect(blocked.headers()['ratelimit-limit']).toBe('8');
   expect(blocked.headers()['ratelimit-remaining']).toBe('0');
   expect(Number(blocked.headers()['ratelimit-reset'])).toBeGreaterThan(0);

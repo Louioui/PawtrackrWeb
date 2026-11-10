@@ -59,13 +59,16 @@ INSERT INTO public.business_configs (business_id) VALUES
   ('11111111-1111-4111-8111-111111111111'),
   ('22222222-2222-4222-8222-222222222222');
 UPDATE public.business_configs
-SET custom_settings = jsonb_build_object('packages', jsonb_build_array(jsonb_build_object('name', 'Bath')))
+SET custom_settings = jsonb_build_object('packages', jsonb_build_array(jsonb_build_object('name', 'Bath')), 'time_zone', 'America/Los_Angeles')
 WHERE business_id = '11111111-1111-4111-8111-111111111111';
 DO $$ BEGIN
   IF (SELECT packages FROM public.booking_public_catalog
       WHERE business_id = '11111111-1111-4111-8111-111111111111')
       <> '[{"name":"Bath"}]'::jsonb THEN
     RAISE EXCEPTION 'Public booking catalog did not refresh';
+  END IF;
+  IF (SELECT time_zone FROM public.booking_service_catalog WHERE slug = 'a') <> 'America/Los_Angeles' THEN
+    RAISE EXCEPTION 'Public booking catalog did not publish salon time zone';
   END IF;
 END $$;
 INSERT INTO public.staff_members (business_id, auth_user_id, name, role, is_active) VALUES

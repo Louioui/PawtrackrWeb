@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { parseClockMinute } from '@/lib/live-reservations';
+import { bookingFitsStaffShifts, isWithinSalonOperatingHours, parseClockMinute, salonLocalDate, validSalonTimeZone } from '@/lib/live-reservations';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,9 +88,16 @@ export async function GET(req: NextRequest) {
   const canBook = !!business.data && ['active', 'trialing'].includes(business.data.subscription_status) &&
     config.data?.currency === 'USD';
   const settings = (config.data?.custom_settings ?? null) as Record<string, unknown> | null;
+  const timeZone = settings?.time_zone ?? 'UTC';
   const buffer = settings?.booking_buffer_mins;
   const validBuffer = typeof buffer === 'number' && Number.isInteger(buffer) && buffer >= 0 && buffer <= 240;
-  const rawPackages = canBook && validBuffer && Array.isArray(settings?.packages) ? settings.packages : [];
+  const rawHours = settings?.operating_hours as Record<string, unknown> | undefined;
+  const openMin = parseClockMinute(rawHours?.open);
+  const closeMin = parseClockMinute(rawHours?.close);
+  const operatingHours = openMin !== null && closeMin !== null && openMin < closeMin
+    ? { open: rawHours?.open as string, close: rawHours?.close as string }
+    : undefined;
+  const rawPackages = canBook && validBuffer && operatingHours && validSalonTimeZone(timeZone) && Array.isArray(settings?.packages) ? settings.packages : [];
   const services = rawPackages.flatMap((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const pkg = item as Record<string, unknown>;
@@ -102,12 +109,6 @@ export async function GET(req: NextRequest) {
     }
     return [{ id: pkg.id, name: pkg.name, duration_minutes: pkg.durationMinutes }];
   });
-  const rawHours = settings?.operating_hours as Record<string, unknown> | undefined;
-  const openMin = parseClockMinute(rawHours?.open);
-  const closeMin = parseClockMinute(rawHours?.close);
-  const operatingHours = openMin !== null && closeMin !== null && openMin < closeMin
-    ? { open: rawHours?.open as string, close: rawHours?.close as string }
-    : undefined;
   return reply({
     source: 'supabase_visits',
     business_id: membership.business_id,
@@ -133,6 +134,7 @@ export async function GET(req: NextRequest) {
       groomers: staff.data.filter((member) => member.is_active && member.role === 'groomer').map((member) => ({ id: member.id, name: member.name })),
       services,
       ...(operatingHours ? { operating_hours: operatingHours } : {}),
+      ...(validSalonTimeZone(timeZone) ? { time_zone: timeZone } : {}),
     },
   }, 200);
 }
@@ -199,14 +201,18 @@ export async function POST(req: NextRequest) {
       config.currency !== 'USD' || typeof buffer !== 'number' || !Number.isInteger(buffer) || buffer < 0 || buffer > 240) {
     return reply({ error: 'The selected service is not configured for reservations.' }, 422);
   }
-  const rawHours = settings?.operating_hours as Record<string, unknown> | undefined;
-  const openMin = parseClockMinute(rawHours?.open);
-  const closeMin = parseClockMinute(rawHours?.close);
-  if (openMin !== null && closeMin !== null && openMin < closeMin) {
-    const startMin = start.getUTCHours() * 60 + start.getUTCMinutes();
-    if (startMin < openMin || startMin + service.durationMinutes > closeMin) {
-      return reply({ error: 'Reservation time is outside the salon operating hours.' }, 422);
-    }
+  if (!isWithinSalonOperatingHours(start, service.durationMinutes, buffer, settings?.operating_hours, settings?.time_zone ?? 'UTC')) {
+    return reply({ error: 'Reservation time is outside configured salon operating hours.' }, 422);
+  }
+  const timeZone = settings?.time_zone ?? 'UTC';
+  if (!validSalonTimeZone(timeZone)) return reply({ error: 'The salon time zone is invalid.' }, 422);
+  const localDate = salonLocalDate(start, timeZone);
+  if (!localDate) return reply({ error: 'The salon time zone is invalid.' }, 422);
+  const { data: shifts, error: shiftsError } = await supabase.from('staff_shifts')
+    .select('status,start_time,end_time').eq('business_id', businessId).eq('staff_id', staff_id).eq('shift_date', localDate).limit(21);
+  if (shiftsError || !shifts || shifts.length > 20) return reply({ error: 'Groomer shifts could not be checked.' }, 502);
+  if (!bookingFitsStaffShifts(start, service.durationMinutes, buffer, localDate, timeZone, shifts)) {
+    return reply({ error: 'The groomer is unavailable during that shift or time off.' }, 422);
   }
 
   const { data: visit, error } = await supabase.from('visits').insert({

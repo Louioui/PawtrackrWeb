@@ -59,13 +59,15 @@ export function middleware(req: NextRequest) {
     (pathname === '/api/reservations' ||
       pathname === '/api/analytics' ||
       pathname === '/api/clients' ||
-      pathname === '/api/settings') &&
-    (req.method === 'POST' || req.method === 'PATCH')
+      pathname === '/api/settings' ||
+      pathname === '/api/shifts') &&
+    (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE')
       ? 'authenticated-write'
       : pathname === '/api/analytics' ||
           pathname === '/api/reservations' ||
           pathname === '/api/clients' ||
           pathname === '/api/settings' ||
+          pathname === '/api/shifts' ||
           pathname === '/dashboard/analytics/live' ||
           pathname === '/dashboard/appointments/live' ||
           pathname === '/dashboard/clients/live' ||

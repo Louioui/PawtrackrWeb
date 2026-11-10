@@ -10,6 +10,7 @@ test('validates salon settings updates including operating hours, tax rate, buff
   const valid = validateSalonSettingsUpdate({
     tax_rate: 8.25,
     booking_buffer_mins: 15,
+    time_zone: 'America/Los_Angeles',
     operating_hours: { open: '08:30', close: '17:30' },
     packages: [
       { id: 'bath-brush', name: 'Bath & Brush', price: 65, durationMinutes: 60 },
@@ -22,6 +23,7 @@ test('validates salon settings updates including operating hours, tax rate, buff
   assert.deepEqual(valid, {
     tax_rate: 8.25,
     booking_buffer_mins: 15,
+    time_zone: 'America/Los_Angeles',
     operating_hours: { open: '08:30', close: '17:30' },
     packages: [
       { id: 'bath-brush', name: 'Bath & Brush', price: 65, durationMinutes: 60 },
@@ -37,6 +39,15 @@ test('validates salon settings updates including operating hours, tax rate, buff
     tax_rate: 8.25,
     booking_buffer_mins: 15,
     operating_hours: { open: '18:00', close: '08:00' },
+    packages: [],
+    addons: [],
+  }), null);
+
+  assert.equal(validateSalonSettingsUpdate({
+    tax_rate: 8.25,
+    booking_buffer_mins: 15,
+    time_zone: 'Mars/Olympus_Mons',
+    operating_hours: { open: '08:00', close: '18:00' },
     packages: [],
     addons: [],
   }), null);
@@ -91,6 +102,7 @@ test('validates groomer intake and normalizes live salon settings snapshot', () 
     tax_rate: 8.63,
     currency: 'USD',
     booking_buffer_mins: 15,
+    time_zone: 'America/Los_Angeles',
     operating_hours: { open: '08:00', close: '18:00' },
     packages: [{ id: 'bath', name: 'Bath & Brush', price: 65, durationMinutes: 60 }],
     addons: [{ id: 'teeth', name: 'Ultrasonic Teeth Gel', price: 18 }],
@@ -101,4 +113,5 @@ test('validates groomer intake and normalizes live salon settings snapshot', () 
   });
   assert.deepEqual(normalized.groomers.map((g) => g.name), ['Elena Vance', 'Sora Takahashi']);
   assert.equal(normalized.tax_rate, 8.63);
+  assert.equal(normalized.time_zone, 'America/Los_Angeles');
 });

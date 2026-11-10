@@ -14,9 +14,12 @@ test('public catalog uses published services and ignores malformed rows', () => 
     packages: [{ name: 'Bath', price: 42.5, durationMinutes: 60 }, { name: '', price: 100 }],
     addons: [{ name: 'Nails', price: -1 }],
     operating_hours: { open: '09:00', close: '17:00' },
+    time_zone: 'America/Los_Angeles',
   }), {
     packages: [{ name: 'Bath', description: null, price: 42.5, durationMinutes: 60 }],
     addons: [{ name: 'Nails', description: null, price: null, durationMinutes: null }],
     operatingHours: { open: '09:00', close: '17:00' },
+    timeZone: 'America/Los_Angeles',
   });
+  assert.equal(parsePublicCatalog({ time_zone: 'Mars/Olympus_Mons' }).timeZone, null);
 });

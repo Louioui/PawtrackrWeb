@@ -38,6 +38,7 @@ export type LiveBookingOptions = {
   groomers: LiveBookingGroomerOption[];
   services: LiveBookingServiceOption[];
   operating_hours?: LiveOperatingHours;
+  time_zone?: string;
 };
 
 export type LiveReservationDay = {
@@ -64,6 +65,123 @@ export function parseClockMinute(value: unknown): number | null {
   if (typeof value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return null;
   const [hours, minutes] = value.split(':').map(Number);
   return hours * 60 + minutes;
+}
+
+export function isWithinUtcOperatingHours(
+  start: Date, durationMinutes: number, bufferMinutes: number, hours: unknown
+): boolean {
+  if (!Number.isFinite(start.getTime()) || !Number.isInteger(durationMinutes) || durationMinutes < 1 ||
+      !Number.isInteger(bufferMinutes) || bufferMinutes < 0 || !object(hours)) return false;
+  const open = parseClockMinute(hours.open);
+  const close = parseClockMinute(hours.close);
+  if (open === null || close === null || open >= close) return false;
+  const minute = start.getUTCHours() * 60 + start.getUTCMinutes();
+  return minute >= open && minute + durationMinutes + bufferMinutes <= close;
+}
+
+export function validSalonTimeZone(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 100 || !/^(?:[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+)+|UTC)$/.test(value)) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: value }); return true; } catch { return false; }
+}
+
+export function resolveSalonLocalTime(date: string, clock: string, timeZone: string):
+  { kind: 'ok'; instant: string } | { kind: 'invalid' | 'ambiguous' } {
+  if (!/^\d{4}-\d\d-\d\d$/.test(date) || parseClockMinute(clock) === null || !validSalonTimeZone(timeZone)) return { kind: 'invalid' };
+  const naive = Date.parse(`${date}T${clock}:00.000Z`);
+  if (!Number.isFinite(naive) || new Date(naive).toISOString().slice(0, 10) !== date) return { kind: 'invalid' };
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const matches: string[] = [];
+  for (let offset = -14 * 60; offset <= 14 * 60; offset += 15) {
+    const instant = new Date(naive - offset * 60_000);
+    const parts = Object.fromEntries(formatter.formatToParts(instant).map((part) => [part.type, part.value]));
+    if (`${parts.year}-${parts.month}-${parts.day}` === date && `${parts.hour}:${parts.minute}` === clock) {
+      matches.push(instant.toISOString());
+    }
+  }
+  if (matches.length === 0) return { kind: 'invalid' };
+  if (matches.length > 1) return { kind: 'ambiguous' };
+  return { kind: 'ok', instant: matches[0] };
+}
+
+export function salonLocalDate(instant: Date, timeZone: string): string | null {
+  if (!validSalonTimeZone(timeZone) || !Number.isFinite(instant.getTime())) return null;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(instant).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export type StaffShiftWindow = {
+  status: 'scheduled' | 'time_off' | 'completed';
+  start_time: string;
+  end_time: string;
+};
+
+export type StaffShiftDraft = StaffShiftWindow & {
+  staff_id: string;
+  shift_date: string;
+  assigned_station: string;
+};
+
+export function validateStaffShiftDraft(input: unknown, timeZone: string): StaffShiftDraft | null {
+  if (!object(input) || !validSalonTimeZone(timeZone) ||
+      typeof input.staff_id !== 'string' || !uuid.test(input.staff_id) ||
+      typeof input.shift_date !== 'string' || !/^\d{4}-\d\d-\d\d$/.test(input.shift_date) ||
+      (input.status !== 'scheduled' && input.status !== 'time_off') ||
+      typeof input.assigned_station !== 'string' || input.assigned_station.trim().length < 1 || input.assigned_station.trim().length > 80) return null;
+  const start = resolveSalonLocalTime(input.shift_date, input.start_time as string, timeZone);
+  const end = resolveSalonLocalTime(input.shift_date, input.end_time as string, timeZone);
+  if (start.kind !== 'ok' || end.kind !== 'ok' || Date.parse(start.instant) >= Date.parse(end.instant)) return null;
+  return {
+    staff_id: input.staff_id,
+    shift_date: input.shift_date,
+    start_time: input.start_time as string,
+    end_time: input.end_time as string,
+    status: input.status,
+    assigned_station: input.assigned_station.trim(),
+  };
+}
+
+export function bookingFitsStaffShifts(
+  start: Date, durationMinutes: number, bufferMinutes: number,
+  localDate: string, timeZone: string, shifts: readonly StaffShiftWindow[]
+): boolean {
+  if (!Number.isFinite(start.getTime()) || !Number.isInteger(durationMinutes) || durationMinutes < 1 ||
+      !Number.isInteger(bufferMinutes) || bufferMinutes < 0 || !validSalonTimeZone(timeZone)) return false;
+  if (shifts.length === 0) return true; // Until a salon configures shifts, operating hours remain the booking boundary.
+  if (shifts.some((shift) => shift.status === 'time_off')) return false;
+  const end = start.getTime() + (durationMinutes + bufferMinutes) * 60_000;
+  return shifts.some((shift) => {
+    if (shift.status !== 'scheduled') return false;
+    const shiftStart = resolveSalonLocalTime(localDate, shift.start_time, timeZone);
+    const shiftEnd = resolveSalonLocalTime(localDate, shift.end_time, timeZone);
+    return shiftStart.kind === 'ok' && shiftEnd.kind === 'ok' &&
+      start.getTime() >= Date.parse(shiftStart.instant) && end <= Date.parse(shiftEnd.instant);
+  });
+}
+
+export function isWithinSalonOperatingHours(
+  start: Date, durationMinutes: number, bufferMinutes: number, hours: unknown, timeZone: unknown
+): boolean {
+  if (!validSalonTimeZone(timeZone) || !Number.isFinite(start.getTime()) ||
+      !Number.isInteger(durationMinutes) || durationMinutes < 1 ||
+      !Number.isInteger(bufferMinutes) || bufferMinutes < 0 || !object(hours)) return false;
+  const open = parseClockMinute(hours.open);
+  const close = parseClockMinute(hours.close);
+  if (open === null || close === null || open >= close) return false;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = (instant: Date) => Object.fromEntries(formatter.formatToParts(instant).map((part) => [part.type, part.value]));
+  const first = parts(start);
+  const end = new Date(start.getTime() + (durationMinutes + bufferMinutes) * 60_000);
+  const last = parts(end);
+  const localDay = (item: Record<string, string>) => `${item.year}-${item.month}-${item.day}`;
+  const minute = (item: Record<string, string>) => Number(item.hour) * 60 + Number(item.minute);
+  return localDay(first) === localDay(last) && minute(first) >= open && minute(last) <= close;
 }
 
 function normalizeBookingOptions(raw: unknown): LiveBookingOptions {
@@ -103,6 +221,7 @@ function normalizeBookingOptions(raw: unknown): LiveBookingOptions {
   groomers.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   services.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   let operatingHours: LiveOperatingHours | undefined;
+  if (raw.time_zone !== undefined && !validSalonTimeZone(raw.time_zone)) throw new Error('Invalid live salon time zone');
   if (raw.operating_hours !== undefined && raw.operating_hours !== null) {
     if (!object(raw.operating_hours)) throw new Error('Invalid live operating hours');
     const openMin = parseClockMinute(raw.operating_hours.open);
@@ -117,6 +236,7 @@ function normalizeBookingOptions(raw: unknown): LiveBookingOptions {
     groomers,
     services,
     ...(operatingHours ? { operating_hours: operatingHours } : {}),
+    ...(typeof raw.time_zone === 'string' ? { time_zone: raw.time_zone } : {}),
   };
 }
 
@@ -154,4 +274,26 @@ export function normalizeLiveReservationDay(input: unknown, expectedDate: string
     cancelled_count: reservations.filter((item) => item.status === 'cancelled').length,
     ...(bookingOptions ? { booking_options: bookingOptions } : {}),
   };
+}
+
+const csvCell = (value: string) => {
+  const safe = /^[\s\uFEFF\u200B]*[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safe.replaceAll('"', '""')}"`;
+};
+
+export function liveReservationCsv(
+  day: LiveReservationDay,
+  visibleReservations: readonly LiveReservation[],
+  snapshotState: 'server_snapshot' | 'last_loaded'
+): string {
+  const allowed = new Set(day.reservations.map((item) => item.id));
+  if (visibleReservations.some((item) => !allowed.has(item.id))) throw new Error('Reservation is outside this snapshot');
+  const header = ['source', 'business_id', 'utc_date', 'as_of_utc', 'snapshot_state', 'visit_id',
+    'start_utc', 'reservation_end_utc', 'status', 'pet_name', 'client_name', 'groomer_name', 'service_package'];
+  const rows = visibleReservations.map((item) => [
+    day.source, day.business_id, day.date, new Date(day.as_of).toISOString(), snapshotState, item.id,
+    new Date(item.scheduled_time).toISOString(), new Date(item.reservation_end).toISOString(),
+    item.status, item.pet_name, item.client_name, item.staff_name, item.service_package,
+  ]);
+  return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }

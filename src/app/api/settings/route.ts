@@ -6,7 +6,7 @@ import {
   validatePackagesList,
   validateSalonSettingsUpdate,
 } from '@/lib/live-settings';
-import { parseClockMinute } from '@/lib/live-reservations';
+import { parseClockMinute, validSalonTimeZone } from '@/lib/live-reservations';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
   const rawTax = config?.tax_rate !== undefined && config?.tax_rate !== null ? Number(config.tax_rate) : 8.25;
   const taxRate = Number.isFinite(rawTax) && rawTax >= 0 && rawTax <= 30 ? Number(rawTax.toFixed(2)) : 8.25;
   const rawBuffer = rawSettings?.booking_buffer_mins;
+  const timeZone = validSalonTimeZone(rawSettings?.time_zone) ? rawSettings.time_zone : 'UTC';
   const bookingBufferMins = typeof rawBuffer === 'number' && Number.isInteger(rawBuffer) && rawBuffer >= 0 && rawBuffer <= 240 ? rawBuffer : 15;
   const rawHours = rawSettings?.operating_hours as Record<string, unknown> | undefined;
   const openMin = parseClockMinute(rawHours?.open);
@@ -69,6 +70,7 @@ export async function GET(req: NextRequest) {
     tax_rate: taxRate,
     currency: 'USD',
     booking_buffer_mins: bookingBufferMins,
+    time_zone: timeZone,
     operating_hours: operatingHours,
     packages,
     addons,
@@ -96,7 +98,7 @@ export async function PATCH(req: NextRequest) {
   }
   const update = validateSalonSettingsUpdate(rawBody);
   if (!update) {
-    return reply({ error: 'Valid tax_rate (0–30), booking_buffer_mins (0–240), operating_hours, packages, and addons are required.' }, 400);
+    return reply({ error: 'Valid tax_rate (0–30), booking_buffer_mins (0–240), time_zone, operating_hours, packages, and addons are required.' }, 400);
   }
 
   const supabase = createClient(url, key, {
@@ -130,6 +132,7 @@ export async function PATCH(req: NextRequest) {
   const mergedCustom = {
     ...existingCustom,
     booking_buffer_mins: update.booking_buffer_mins,
+    time_zone: update.time_zone,
     operating_hours: update.operating_hours,
     packages: update.packages,
     addons: update.addons,

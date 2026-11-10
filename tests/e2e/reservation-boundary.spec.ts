@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 test('staff reservation endpoint requires a real session and validates the request', async ({ request }) => {
   const missingRead = await request.get('/api/reservations?date=2026-11-09');
@@ -124,6 +125,18 @@ test('staff reservation endpoint requires a real session and validates the reque
     data: { name: '   ' },
   });
   expect(malformedSettingsPost.status()).toBe(400);
+
+  const invalidShiftDate = await request.get('/api/shifts?date=2026-02-30');
+  expect(invalidShiftDate.status()).toBe(400);
+  const missingShiftsRead = await request.get('/api/shifts?date=2026-11-09');
+  expect(missingShiftsRead.status()).toBe(401);
+  expect(missingShiftsRead.headers()['x-pawtrackr-data-mode']).toBe('authenticated-read');
+  const missingShiftsWrite = await request.post('/api/shifts', {
+    data: { staff_id: 'cccccccc-1111-4111-8111-111111111111', shift_date: '2026-11-09',
+      start_time: '09:00', end_time: '17:00', status: 'scheduled', assigned_station: 'Bay 1' },
+  });
+  expect(missingShiftsWrite.status()).toBe(401);
+  expect(missingShiftsWrite.headers()['x-pawtrackr-data-mode']).toBe('authenticated-write');
 });
 
 test('live appointments requires staff sign-in and fits narrow mobile viewports', async ({ page }) => {
@@ -174,6 +187,7 @@ test('live appointments supports desktop, portrait, and landscape schedules with
 
   let mochiStatus: 'ready' | 'completed' = 'ready';
   let createdVisit = false;
+  let bookingZone = 'UTC';
 
   await page.route('**/api/reservations**', async (route) => {
     const method = route.request().method();
@@ -311,6 +325,7 @@ test('live appointments supports desktop, portrait, and landscape schedules with
           }] : []),
         ],
         booking_options: {
+          time_zone: bookingZone,
           pets: [
             {
               id: 'eeeeeeee-1111-4111-8111-111111111111',
@@ -356,6 +371,13 @@ test('live appointments supports desktop, portrait, and landscape schedules with
   const filterRail = page.getByRole('complementary', { name: 'Groomer filters' });
   await filterRail.getByRole('button', { name: 'Elena Vance' }).click();
   await expect(detailRegion).toBeVisible();
+  const csvDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export visible CSV' }).click();
+  const csv = await readFile(await (await csvDownload).path(), 'utf8');
+  expect(csv).toContain('"source","business_id"');
+  expect(csv).toContain('Bello');
+  expect(csv).toContain('Milo');
+  expect(csv).not.toContain('Mochi');
   await filterRail.getByRole('button', { name: 'Sora Takahashi' }).click();
   await expect(detailRegion).toHaveCount(0);
   await filterRail.getByRole('button', { name: 'All groomers' }).click();
@@ -376,6 +398,16 @@ test('live appointments supports desktop, portrait, and landscape schedules with
   await page.getByRole('button', { name: 'Book visit' }).click();
   await expect(page.getByText('3 active · 0 completed · 1 canceled')).toBeVisible();
   await expect(timeline.getByRole('button', { name: /Koda/ })).toBeVisible();
+
+  bookingZone = 'America/Los_Angeles';
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.locator('summary').filter({ hasText: 'New appointment' }).click();
+  await page.getByLabel(/Salon local date/).fill('2026-03-08');
+  await page.getByLabel(/Salon local start time/).fill('02:30');
+  await page.getByRole('button', { name: 'Book visit' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'does not exist in the salon time zone' })).toBeVisible();
+  bookingZone = 'UTC';
+  await page.getByRole('button', { name: 'Refresh' }).click();
 
   // 2. Mobile Landscape (844x390): horizontal groomer timeline + visible compact details below timeline + status completion
   await page.setViewportSize({ width: 844, height: 390 });
@@ -536,15 +568,17 @@ test('live client and pet roster supports staff intake, weight updates, offline 
   await expect(page.getByRole('cell', { name: '34.75 lbs' })).toBeVisible();
 
   revoked = true;
-  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'An active staff membership is required.' })).toBeVisible();
   await expect(page.getByRole('status')).toContainText('Roster unavailable');
 });
 
 test('live salon settings supports catalog updates, groomer registration, and membership revocation', async ({ page }) => {
   let savedPackage = false;
+  let savedTimeZone = 'UTC';
   let addedGroomer = false;
   let revoked = false;
+  let shiftRows: Array<Record<string, string>> = [];
   await page.addInitScript(() => {
     localStorage.setItem('sb-jdauajfcmsaamhgyklng-auth-token', JSON.stringify({
       access_token: 'fixture.jwt.token',
@@ -567,6 +601,9 @@ test('live salon settings supports catalog updates, groomer registration, and me
   await page.route('**/api/settings', async (route) => {
     expect(route.request().headers().authorization).toBe('Bearer fixture.jwt.token');
     if (route.request().method() === 'PATCH') {
+      const payload = route.request().postDataJSON();
+      expect(payload.time_zone).toBe('America/Los_Angeles');
+      savedTimeZone = payload.time_zone;
       savedPackage = true;
       await route.fulfill({
         status: 200,
@@ -613,6 +650,7 @@ test('live salon settings supports catalog updates, groomer registration, and me
         tax_rate: 8.63,
         currency: 'USD',
         booking_buffer_mins: 15,
+        time_zone: savedTimeZone,
         operating_hours: { open: '08:00', close: '18:00' },
         packages: [
           { id: 'bath-brush', name: 'Bath & Brush', price: 65, durationMinutes: 60 },
@@ -627,18 +665,48 @@ test('live salon settings supports catalog updates, groomer registration, and me
     });
   });
 
+  await page.route('**/api/shifts**', async (route) => {
+    expect(route.request().headers().authorization).toBe('Bearer fixture.jwt.token');
+    const method = route.request().method();
+    if (method === 'POST') {
+      const payload = route.request().postDataJSON() as Record<string, string>;
+      expect(payload.staff_id).toBe('dddddddd-1111-4111-8111-111111111111');
+      expect(payload.assigned_station).toBe('Bay 1');
+      shiftRows = [{ ...payload, id: 'eeeeeeee-1111-4111-8111-111111111111' }];
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ shift: shiftRows[0] }) });
+      return;
+    }
+    if (method === 'DELETE') {
+      shiftRows = [];
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ deleted_id: 'eeeeeeee-1111-4111-8111-111111111111' }) });
+      return;
+    }
+    const date = new URL(route.request().url()).searchParams.get('date');
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      source: 'supabase_staff_shifts', business_id: '11111111-1111-4111-8111-111111111111', date, as_of: '2026-11-09T14:00:00Z', shifts: shiftRows,
+    }) });
+  });
+
   await page.goto('/dashboard/settings/live');
   await expect(page.getByRole('heading', { name: 'Live catalog, hours & groomers' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Bespoke Grooming Studio' })).toBeVisible();
   await expect(page.getByText('1 package · 1 add-on')).toBeVisible();
 
   await page.getByLabel('Package name').fill('Full Scissor Finish');
+  await page.getByLabel('Salon time zone (IANA)').fill('America/Los_Angeles');
   await page.getByLabel('Price (USD)', { exact: true }).fill('135');
   await page.getByLabel('Duration (mins)').fill('120');
   await page.getByRole('button', { name: 'Add package' }).click();
   await page.getByRole('button', { name: 'Save salon settings' }).click();
-  await expect(page.getByText('Salon catalog and operating hours saved to Supabase.')).toBeVisible();
+  await expect(page.getByText('Salon catalog, time zone, and operating hours saved to Supabase.')).toBeVisible();
   await expect(page.getByText('2 packages · 1 add-on')).toBeVisible();
+  await expect(page.getByLabel('Salon time zone (IANA)')).toHaveValue('America/Los_Angeles');
+
+  await page.getByLabel('Station').fill('Bay 1');
+  await page.getByRole('button', { name: 'Add shift' }).click();
+  await expect(page.getByText(/Elena Vance · 09:00–17:00 · Bay 1/)).toBeVisible();
+  await page.getByRole('button', { name: /Remove Elena Vance shift/ }).click();
+  await expect(page.getByText('No shifts recorded for this local date. Salon hours currently govern booking.')).toBeVisible();
 
   await page.locator('summary').filter({ hasText: 'Register groomer' }).click();
   await page.getByLabel('Groomer name').fill('Sora Takahashi');
@@ -648,7 +716,7 @@ test('live salon settings supports catalog updates, groomer registration, and me
   await expect(page.getByRole('cell', { name: 'Asian Fusion' })).toBeVisible();
 
   revoked = true;
-  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'An active staff membership is required.' })).toBeVisible();
 });
 

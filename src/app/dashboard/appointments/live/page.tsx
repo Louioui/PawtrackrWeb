@@ -2,9 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, RefreshCw, WifiOff } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, RefreshCw, WifiOff } from 'lucide-react';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
-import { LiveReservation, LiveReservationDay, normalizeLiveReservationDay } from '@/lib/live-reservations';
+import { LiveReservation, LiveReservationDay, liveReservationCsv, normalizeLiveReservationDay, resolveSalonLocalTime } from '@/lib/live-reservations';
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
 const shiftDay = (day: string, change: number) => new Date(Date.parse(`${day}T12:00:00Z`) + change * 86400000).toISOString().slice(0, 10);
@@ -40,6 +40,7 @@ export default function LiveAppointmentsPage() {
   const [bookingStaffId, setBookingStaffId] = useState('');
   const [bookingPackageId, setBookingPackageId] = useState('');
   const [bookingTime, setBookingTime] = useState('09:00');
+  const [bookingLocalDate, setBookingLocalDate] = useState(utcDay);
   const [saving, setSaving] = useState(false);
   const requestId = useRef(0);
   const filterMenuRef = useRef<HTMLDetailsElement>(null);
@@ -103,7 +104,7 @@ export default function LiveAppointmentsPage() {
   }, [refresh]);
 
   const changeDay = (next: string) => {
-    requestId.current += 1; setSnapshot(null); setSelectedId(null); setStaffFilter('all'); setDay(next);
+    requestId.current += 1; setSnapshot(null); setSelectedId(null); setStaffFilter('all'); setBookingLocalDate(next); setDay(next);
   };
   const signIn = async (event: FormEvent) => {
     event.preventDefault(); const client = getSupabaseClient(); if (!client) return;
@@ -126,8 +127,25 @@ export default function LiveAppointmentsPage() {
   const rows = useMemo(() => (snapshot?.reservations ?? []).filter((item) => staffFilter === 'all' || (item.staff_id ?? 'unassigned') === staffFilter), [snapshot, staffFilter]);
   const selected = rows.find((item) => item.id === selectedId) ?? null;
   const lanes = staffFilter === 'all' ? staff : staff.filter(([id]) => id === staffFilter);
+  const firstMinute = rows.length ? Math.min(...rows.map((item) => minute(item.scheduled_time))) : 480;
+  const lastMinute = rows.length ? Math.max(...rows.map((item) => Math.min(1440, minute(item.scheduled_time) + (Date.parse(item.reservation_end) - Date.parse(item.scheduled_time)) / 60000))) : 1080;
+  const axisStart = Math.max(0, Math.floor(firstMinute / 60) * 60 - 60);
+  const axisEnd = Math.min(1440, Math.max(axisStart + 360, Math.ceil(lastMinute / 60) * 60 + 60));
+  const axisSpan = axisEnd - axisStart;
+  const axisTicks = Array.from({ length: Math.floor(axisSpan / 60) + 1 }, (_, index) => axisStart + index * 60);
   const bookingOptions = snapshot?.booking_options;
   const canBook = (bookingOptions?.pets.length ?? 0) > 0 && (bookingOptions?.groomers.length ?? 0) > 0 && (bookingOptions?.services.length ?? 0) > 0;
+
+  const exportCsv = () => {
+    if (!snapshot) return;
+    const csv = liveReservationCsv(snapshot, rows, online && phase === 'ready' ? 'server_snapshot' : 'last_loaded');
+    const objectUrl = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = `pawtrackr-appointments-${snapshot.date}-utc.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  };
 
   useEffect(() => {
     if (selected) setStatusDraft(selected.status);
@@ -177,6 +195,16 @@ export default function LiveAppointmentsPage() {
     const pet = bookingOptions.pets.find((item) => item.id === bookingPetId);
     const client = getSupabaseClient();
     if (!pet || !bookingStaffId || !bookingPackageId || !bookingTime || !client) return;
+    const zone = bookingOptions.time_zone ?? 'UTC';
+    const local = zone === 'UTC'
+      ? { kind: 'ok' as const, instant: `${day}T${bookingTime}:00.000Z` }
+      : resolveSalonLocalTime(bookingLocalDate, bookingTime, zone);
+    if (local.kind !== 'ok') {
+      setMessage(local.kind === 'ambiguous'
+        ? 'This local time occurs twice when clocks change. Choose another time.'
+        : 'This local date and time does not exist in the salon time zone.');
+      return;
+    }
     setSaving(true); setMessage('');
     try {
       const { data: { session } } = await client.auth.getSession();
@@ -189,7 +217,7 @@ export default function LiveAppointmentsPage() {
           pet_id: pet.id,
           staff_id: bookingStaffId,
           package_id: bookingPackageId,
-          scheduled_time: `${day}T${bookingTime}:00.000Z`,
+          scheduled_time: local.instant,
         }),
       });
       const body: unknown = await response.json();
@@ -198,7 +226,9 @@ export default function LiveAppointmentsPage() {
       const createdId = (body as { reservation?: { id?: string } }).reservation?.id;
       if (createdId) setSelectedId(createdId);
       bookingMenuRef.current?.removeAttribute('open');
-      await refresh();
+      const resultDay = local.instant.slice(0, 10);
+      if (resultDay !== day) { changeDay(resultDay); if (createdId) setSelectedId(createdId); }
+      else await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The reservation could not be saved.');
     } finally {
@@ -229,7 +259,13 @@ export default function LiveAppointmentsPage() {
 
   return <main className="mx-auto max-w-[1600px] px-4 pb-20 pt-6 sm:px-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap items-center gap-4">
+      <details className="md:hidden"><summary className="min-h-11 cursor-pointer text-sm text-periwinkle-300">Other staff views</summary><div className="mt-2 flex flex-col gap-3 pb-2">
+        <Link href="/dashboard" className="text-sm text-periwinkle-300">Demo command center</Link>
+        <Link href="/dashboard/clients/live" className="text-sm text-periwinkle-300">Salon clients & pets</Link>
+        <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300">Live catalog & groomers</Link>
+        <Link href="/dashboard/analytics/live" className="text-sm text-periwinkle-300">Recorded checkout analytics</Link>
+      </div></details>
+      <div className="hidden flex-wrap items-center gap-4 md:flex">
         <Link href="/dashboard" className="text-sm text-periwinkle-300 hover:text-white">← Demo command center</Link>
         <Link href="/dashboard/clients/live" className="text-sm text-periwinkle-300 hover:text-white">Salon clients & pets →</Link>
         <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300 hover:text-white">Live catalog & groomers →</Link>
@@ -257,13 +293,14 @@ export default function LiveAppointmentsPage() {
         <input id="appointment-day" type="date" value={day} onChange={(event) => event.target.value && changeDay(event.target.value)} className="min-h-11 rounded-lg border border-white/15 bg-obsidian-800 px-3 text-white" />
         <button type="button" aria-label="Next UTC day" onClick={() => changeDay(shiftDay(day, 1))} className="min-h-11 min-w-11 rounded-lg border border-white/15 text-white"><ChevronRight className="mx-auto h-4 w-4" /></button>
         <button type="button" onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm text-white"><RefreshCw className="h-4 w-4" /> Refresh</button>
+        {snapshot && <button type="button" onClick={exportCsv} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm text-white"><Download className="h-4 w-4" /> Export visible CSV</button>}
         <span role="status" aria-live="polite" className={`ml-auto text-xs ${online && phase === 'ready' ? 'text-emerald-300' : 'text-amber-300'}`}>
           {!online ? <><WifiOff className="mr-1 inline h-3 w-3" />Offline · {snapshot ? 'last loaded day' : 'no data'}</> : phase === 'checking' ? 'Refreshing…' : phase === 'error' ? snapshot ? 'Refresh failed · last loaded day' : 'Unavailable' : 'Server snapshot'}
         </span>
       </div>
       {snapshot && <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
         <span>Source: Supabase visits</span><span>Date: {snapshot.date} UTC</span>
-        {bookingOptions?.operating_hours && <span>Hours: {bookingOptions.operating_hours.open}–{bookingOptions.operating_hours.close} UTC</span>}
+        {bookingOptions?.operating_hours && <span>Hours: {bookingOptions.operating_hours.open}–{bookingOptions.operating_hours.close} {bookingOptions.time_zone ?? 'UTC'}</span>}
         <span>Updated: {new Date(snapshot.as_of).toLocaleString('en-US', { timeZone: 'UTC' })} UTC</span>
         <span>{snapshot.active_count} active · {snapshot.completed_count} completed · {snapshot.cancelled_count} canceled</span>
       </div>}
@@ -285,7 +322,10 @@ export default function LiveAppointmentsPage() {
               {bookingOptions.services.map((service) => <option key={service.id} value={service.id}>{service.name} ({service.duration_minutes}m)</option>)}
             </select>
           </label>
-          <label className="block text-xs text-zinc-300">UTC start time ({day})
+          {bookingOptions.time_zone && bookingOptions.time_zone !== 'UTC' && <label className="block text-xs text-zinc-300">Salon local date ({bookingOptions.time_zone})
+            <input type="date" required value={bookingLocalDate} onChange={(event) => setBookingLocalDate(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white" />
+          </label>}
+          <label className="block text-xs text-zinc-300">{bookingOptions.time_zone && bookingOptions.time_zone !== 'UTC' ? `Salon local start time (${bookingOptions.time_zone})` : `UTC start time (${day})`}
             <input type="time" required value={bookingTime} onChange={(event) => setBookingTime(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white" />
           </label>
           <div className="flex items-end">
@@ -317,8 +357,8 @@ export default function LiveAppointmentsPage() {
             </section>
             <section className="live-timeline hidden rounded-xl border border-white/10" aria-label="Appointment timeline">
               <div className="overflow-x-auto">
-                <div className="min-w-[960px]">
-                  <div className="flex border-b border-white/10 bg-obsidian-800/70"><span className="w-32 shrink-0 p-3 text-xs text-zinc-400">Groomer</span><div className="relative h-12 flex-1">{Array.from({ length: 13 }, (_, i) => <span key={i} className="absolute top-3 -translate-x-1/2 font-mono text-[10px] text-zinc-400" style={{ left: `${i * 100 / 12}%` }}>{String(i * 2).padStart(2, '0')}:00</span>)}</div></div>
+                <div style={{ minWidth: `${Math.max(960, axisSpan / 60 * 125)}px` }}>
+                  <div className="flex border-b border-white/10 bg-obsidian-800/70"><span className="w-32 shrink-0 p-3 text-xs text-zinc-400">Groomer</span><div className="relative h-12 flex-1">{axisTicks.map((tick) => <span key={tick} className="absolute top-3 -translate-x-1/2 font-mono text-[10px] text-zinc-400" style={{ left: `${(tick - axisStart) / axisSpan * 100}%` }}>{String(Math.floor(tick / 60)).padStart(2, '0')}:00</span>)}</div></div>
                   {lanes.map(([id, name]) => {
                     const laneRows = rows.filter((item) => (item.staff_id ?? 'unassigned') === id);
                     const trackEnds: number[] = [];
@@ -333,12 +373,12 @@ export default function LiveAppointmentsPage() {
                       } else {
                         trackEnds[track] = endMin;
                       }
-                      const leftPct = (startMin / 1440) * 100;
-                      const widthPct = Math.min(100 - leftPct, Math.max(3, (durationMin / 1440) * 100));
+                      const leftPct = (startMin - axisStart) / axisSpan * 100;
+                      const widthPct = Math.min(100 - leftPct, Math.max(3, (durationMin / axisSpan) * 100));
                       return { item, track, leftPct, widthPct };
                     });
                     const laneHeight = Math.max(96, placed.length ? trackEnds.length * 72 + 24 : 96);
-                    return <div key={id} className="flex border-b border-white/10" style={{ minHeight: `${laneHeight}px` }}><div className="w-32 shrink-0 p-3 text-sm font-semibold text-zinc-200">{name}</div><div className="relative flex-1 bg-[repeating-linear-gradient(to_right,transparent,transparent_calc(8.333%_-_1px),rgba(255,255,255,0.08)_calc(8.333%_-_1px),rgba(255,255,255,0.08)_8.333%)]" style={{ minHeight: `${laneHeight}px` }}>{placed.map(({ item, track, leftPct, widthPct }) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} title={`${item.pet_name}: ${time(item.scheduled_time)}–${time(item.reservation_end)} UTC`} className={`absolute h-16 overflow-hidden rounded-lg border px-2 text-left text-xs ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`} style={{ top: `${12 + track * 72}px`, left: `${leftPct}%`, width: `${widthPct}%` }}><strong className="block truncate text-white">{item.pet_name}</strong><span className="block truncate">{statusLabel[item.status]}</span></button>)}</div></div>;
+                    return <div key={id} className="flex border-b border-white/10" style={{ minHeight: `${laneHeight}px` }}><div className="w-32 shrink-0 p-3 text-sm font-semibold text-zinc-200">{name}</div><div className="relative flex-1" style={{ minHeight: `${laneHeight}px`, backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.08) 1px, transparent 1px)", backgroundSize: `${100 / (axisSpan / 60)}% 100%` }}>{placed.map(({ item, track, leftPct, widthPct }) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-pressed={selectedId === item.id} title={`${item.pet_name}: ${time(item.scheduled_time)}–${time(item.reservation_end)} UTC`} className={`absolute h-16 overflow-hidden rounded-lg border px-2 text-left text-xs ${statusClass[item.status]} ${selectedId === item.id ? 'ring-2 ring-periwinkle-400' : ''}`} style={{ top: `${12 + track * 72}px`, left: `${leftPct}%`, width: `${widthPct}%` }}><strong className="block truncate text-white">{item.pet_name}</strong><span className="block truncate">{statusLabel[item.status]}</span></button>)}</div></div>;
                   })}
                 </div>
               </div>

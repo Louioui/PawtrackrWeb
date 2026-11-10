@@ -10,6 +10,7 @@ import {
   LiveSettingsPackage,
   normalizeLiveSalonSettings,
 } from '@/lib/live-settings';
+import ShiftEditor from './ShiftEditor';
 
 export default function LiveSalonSettingsPage() {
   const [email, setEmail] = useState('');
@@ -23,6 +24,7 @@ export default function LiveSalonSettingsPage() {
 
   const [taxRate, setTaxRate] = useState('8.25');
   const [bufferMins, setBufferMins] = useState('15');
+  const [timeZone, setTimeZone] = useState('UTC');
   const [openTime, setOpenTime] = useState('08:00');
   const [closeTime, setCloseTime] = useState('18:00');
   const [packages, setPackages] = useState<LiveSettingsPackage[]>([]);
@@ -49,6 +51,7 @@ export default function LiveSalonSettingsPage() {
     setSettings(loaded);
     setTaxRate(String(loaded.tax_rate));
     setBufferMins(String(loaded.booking_buffer_mins));
+    setTimeZone(loaded.time_zone);
     setOpenTime(loaded.operating_hours.open);
     setCloseTime(loaded.operating_hours.close);
     setPackages(loaded.packages);
@@ -166,6 +169,7 @@ export default function LiveSalonSettingsPage() {
         body: JSON.stringify({
           tax_rate: Number(taxRate),
           booking_buffer_mins: Number(bufferMins),
+          time_zone: timeZone,
           operating_hours: { open: openTime, close: closeTime },
           packages,
           addons,
@@ -174,7 +178,7 @@ export default function LiveSalonSettingsPage() {
       const body: unknown = await response.json();
       if (response.status === 401) { setSignedIn(false); setSettings(null); setMessage('Your session expired. Sign in again.'); return; }
       if (!response.ok) throw new Error((body as { error?: string }).error ?? 'The salon settings could not be saved.');
-      setStatusNotice('Salon catalog and operating hours saved to Supabase.');
+      setStatusNotice('Salon catalog, time zone, and operating hours saved to Supabase.');
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The salon settings could not be saved.');
@@ -263,11 +267,14 @@ export default function LiveSalonSettingsPage() {
           </div>
 
           <form onSubmit={saveConfig} className="mt-5 space-y-6">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label className="block text-xs text-zinc-300">UTC open time (HH:MM)
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <label className="block text-xs text-zinc-300">Salon time zone (IANA)
+                <input type="text" required value={timeZone} onChange={(event) => setTimeZone(event.target.value)} placeholder="America/Los_Angeles" className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 font-mono text-sm text-white" />
+              </label>
+              <label className="block text-xs text-zinc-300">Local open time (HH:MM)
                 <input type="text" required pattern="[0-2][0-9]:[0-5][0-9]" value={openTime} onChange={(event) => setOpenTime(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 font-mono text-sm text-white" />
               </label>
-              <label className="block text-xs text-zinc-300">UTC close time (HH:MM)
+              <label className="block text-xs text-zinc-300">Local close time (HH:MM)
                 <input type="text" required pattern="[0-2][0-9]:[0-5][0-9]" value={closeTime} onChange={(event) => setCloseTime(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 font-mono text-sm text-white" />
               </label>
               <label className="block text-xs text-zinc-300">Turnaround buffer (mins)
@@ -398,6 +405,7 @@ export default function LiveSalonSettingsPage() {
             </div>
           )}
         </section>
+        <ShiftEditor settings={settings} />
       </div>}
     </>}
     {message && <p role="alert" className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">{message}</p>}

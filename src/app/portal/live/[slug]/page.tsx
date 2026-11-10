@@ -13,7 +13,7 @@ export default async function LiveSalonCatalogPage({ params }: { params: Promise
   if (!client) return <main className="mx-auto max-w-4xl px-4 py-12"><p role="alert" className="glass-card p-6 text-amber-200">The live catalog is unavailable.</p></main>;
   const [directory, catalog] = await Promise.all([
     client.from('booking_business_directory').select('id,name,slug,city_state').eq('slug', slug).maybeSingle(),
-    client.from('booking_service_catalog').select('slug,packages,addons,operating_hours').eq('slug', slug).maybeSingle(),
+    client.from('booking_service_catalog').select('slug,packages,addons,operating_hours,time_zone').eq('slug', slug).maybeSingle(),
   ]);
   if (directory.error || catalog.error) return <main className="mx-auto max-w-4xl px-4 py-12"><p role="alert" className="glass-card p-6 text-amber-200">The live catalog is unavailable.</p></main>;
   const salon = parsePublicSalon(directory.data);
@@ -28,7 +28,7 @@ export default async function LiveSalonCatalogPage({ params }: { params: Promise
         : <p className="mt-4 text-sm text-zinc-400">This salon has not published services yet.</p>}
     </section>
     {services.addons.length > 0 && <section className="glass-card mt-5 p-5 sm:p-6" aria-labelledby="addons-heading"><h2 id="addons-heading" className="text-xl font-bold text-white">Add-ons</h2><ul className="mt-4 divide-y divide-white/10">{services.addons.map((service, index) => <li key={`${service.name}-${index}`} className="flex justify-between gap-3 py-3 text-sm"><span className="text-zinc-200">{service.name}</span>{service.price !== null && <span className="font-mono text-white">{money(service.price)}</span>}</li>)}</ul></section>}
-    {services.operatingHours && <p className="mt-5 text-sm text-zinc-400">Published hours: {services.operatingHours.open}–{services.operatingHours.close}. Confirm availability with the salon.</p>}
+    {services.operatingHours && <p className="mt-5 text-sm text-zinc-400">Published hours: {services.operatingHours.open}–{services.operatingHours.close} {services.timeZone ?? '(time zone unavailable)'}. Confirm availability with the salon.</p>}
     <p className="mt-7 border-t border-white/10 pt-4 text-xs text-zinc-500">Source: Pawtrackr public booking catalog. Online appointment requests are not yet enabled on this live view.</p>
   </main>;
 }

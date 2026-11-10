@@ -5,6 +5,11 @@ function parseClockMinute(value: unknown): number | null {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
+function validSalonTimeZone(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 100 || !/^(?:[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+)+|UTC)$/.test(value)) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: value }); return true; } catch { return false; }
+}
+
 export type LiveSettingsPackage = {
   id: string;
   name: string;
@@ -37,6 +42,7 @@ export type LiveSalonSettings = {
   tax_rate: number;
   currency: 'USD';
   booking_buffer_mins: number;
+  time_zone: string;
   operating_hours: {
     open: string;
     close: string;
@@ -49,6 +55,7 @@ export type LiveSalonSettings = {
 export type ValidatedSalonSettingsUpdate = {
   tax_rate: number;
   booking_buffer_mins: number;
+  time_zone: string;
   operating_hours: {
     open: string;
     close: string;
@@ -130,6 +137,8 @@ export function validateSalonSettingsUpdate(input: unknown): ValidatedSalonSetti
     return null;
   }
   if (!object(input.operating_hours)) return null;
+  const timeZone = input.time_zone === undefined ? 'UTC' : input.time_zone;
+  if (!validSalonTimeZone(timeZone)) return null;
   const openMin = parseClockMinute(input.operating_hours.open);
   const closeMin = parseClockMinute(input.operating_hours.close);
   if (openMin === null || closeMin === null || openMin >= closeMin) {
@@ -142,6 +151,7 @@ export function validateSalonSettingsUpdate(input: unknown): ValidatedSalonSetti
   return {
     tax_rate: Number(rawTax.toFixed(2)),
     booking_buffer_mins: rawBuffer,
+    time_zone: timeZone,
     operating_hours: {
       open: input.operating_hours.open as string,
       close: input.operating_hours.close as string,
@@ -179,6 +189,7 @@ export function normalizeLiveSalonSettings(input: unknown): LiveSalonSettings {
   const validatedConfig = validateSalonSettingsUpdate({
     tax_rate: input.tax_rate,
     booking_buffer_mins: input.booking_buffer_mins,
+    time_zone: input.time_zone,
     operating_hours: input.operating_hours,
     packages: input.packages,
     addons: input.addons,
@@ -214,6 +225,7 @@ export function normalizeLiveSalonSettings(input: unknown): LiveSalonSettings {
     tax_rate: validatedConfig.tax_rate,
     currency: 'USD',
     booking_buffer_mins: validatedConfig.booking_buffer_mins,
+    time_zone: validatedConfig.time_zone,
     operating_hours: validatedConfig.operating_hours,
     packages: validatedConfig.packages,
     addons: validatedConfig.addons,

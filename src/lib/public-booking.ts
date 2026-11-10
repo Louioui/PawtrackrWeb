@@ -18,6 +18,7 @@ export interface PublicCatalog {
   packages: PublicService[];
   addons: PublicService[];
   operatingHours: { open: string; close: string } | null;
+  timeZone: string | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -55,11 +56,19 @@ function parseServices(value: unknown): PublicService[] {
 export function parsePublicCatalog(value: unknown): PublicCatalog {
   const row = isRecord(value) ? value : {};
   const hours = isRecord(row.operating_hours) ? row.operating_hours : {};
+  let timeZone: string | null = null;
+  if (typeof row.time_zone === 'string' && row.time_zone.length <= 100) {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: row.time_zone });
+      timeZone = row.time_zone;
+    } catch { /* Do not label hours with an invalid zone. */ }
+  }
   return {
     packages: parseServices(row.packages),
     addons: parseServices(row.addons),
     operatingHours: typeof hours.open === 'string' && typeof hours.close === 'string'
       ? { open: hours.open, close: hours.close } : null,
+    timeZone,
   };
 }
 

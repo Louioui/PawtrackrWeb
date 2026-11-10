@@ -393,5 +393,215 @@ DO $$ BEGIN
   END;
 END $$;
 RESET ROLE;
+
+-- 0017: a signed-up user with no membership provisions exactly one salon.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'cccccccc-0000-4000-8000-000000000000', false);
+SELECT set_config('request.jwt.claims', '{"email":"new-owner@example.test"}', false);
+DO $$
+DECLARE salon uuid;
+BEGIN
+  IF private.current_business_id() IS NOT NULL THEN RAISE EXCEPTION 'New user already has a tenant'; END IF;
+  BEGIN
+    PERFORM public.provision_salon('New Salon', 'Bad Slug!', 'America/Chicago', 'New Owner');
+    RAISE EXCEPTION 'Invalid slug was accepted';
+  EXCEPTION WHEN SQLSTATE 'PW012' THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.provision_salon('New Salon', 'new-salon', 'Mars/Phobos', 'New Owner');
+    RAISE EXCEPTION 'Unknown time zone was accepted';
+  EXCEPTION WHEN SQLSTATE 'PW012' THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.provision_salon('Copycat', 'a', 'America/Chicago', 'New Owner');
+    RAISE EXCEPTION 'Too-short slug was accepted';
+  EXCEPTION WHEN SQLSTATE 'PW012' THEN NULL;
+  END;
+  salon := public.provision_salon('  New Salon  ', 'new-salon', 'America/Chicago', 'New Owner');
+  IF private.current_business_id() IS DISTINCT FROM salon THEN
+    RAISE EXCEPTION 'Provisioned owner was not bound to the new salon';
+  END IF;
+  IF (SELECT count(*) FROM public.businesses) <> 1
+     OR (SELECT name || '|' || subscription_status || '|' || owner_email FROM public.businesses)
+        <> 'New Salon|trialing|new-owner@example.test'
+     OR (SELECT custom_settings ->> 'time_zone' FROM public.business_configs) <> 'America/Chicago'
+     OR (SELECT custom_settings #>> '{operating_hours,open}' FROM public.business_configs) <> '08:00'
+     OR (SELECT role FROM public.staff_members) <> 'owner' THEN
+    RAISE EXCEPTION 'Provisioned salon rows are wrong or other tenants are visible';
+  END IF;
+  BEGIN
+    PERFORM public.provision_salon('Second Salon', 'second-salon', 'America/Chicago', 'New Owner');
+    RAISE EXCEPTION 'A member provisioned a second salon';
+  EXCEPTION WHEN SQLSTATE 'PW011' THEN NULL;
+  END;
+END $$;
+SELECT set_config('request.jwt.claim.sub', 'dddddddd-0000-4000-8000-000000000000', false);
+SELECT set_config('request.jwt.claims', '{"email":"other@example.test"}', false);
+DO $$ BEGIN
+  BEGIN
+    PERFORM public.provision_salon('Slug Thief', 'new-salon', 'America/Chicago', 'Other');
+    RAISE EXCEPTION 'Duplicate slug was accepted';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  IF private.current_business_id() IS NOT NULL THEN RAISE EXCEPTION 'Failed provisioning left a membership'; END IF;
+END $$;
+RESET ROLE;
+SET ROLE anon;
+SELECT set_config('request.jwt.claim.sub', '', false);
+SELECT set_config('request.jwt.claims', '{}', false);
+DO $$ BEGIN
+  BEGIN
+    PERFORM public.provision_salon('Anon Salon', 'anon-salon', 'UTC', 'Nobody');
+    RAISE EXCEPTION 'Anonymous provisioning was accepted';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END $$;
+RESET ROLE;
+
+-- 0018: anonymous online booking through the two public functions only.
+UPDATE public.business_configs SET custom_settings = '{
+  "packages":[{"id":"bath","name":"Bath","price":19.99,"durationMinutes":60},
+              {"id":"broken","name":"Broken","price":19.999,"durationMinutes":60}],
+  "operating_hours":{"open":"08:00","close":"18:00"},
+  "booking_buffer_mins":15,"time_zone":"America/Los_Angeles"}'::jsonb
+WHERE business_id = '11111111-1111-4111-8111-111111111111';
+SET ROLE anon;
+DO $$
+DECLARE day constant date := (now() AT TIME ZONE 'America/Los_Angeles')::date + 7;
+DECLARE nine timestamptz;
+DECLARE confirmation jsonb;
+DECLARE n integer;
+BEGIN
+  SELECT count(*) INTO n FROM public.public_booking_slots('a', 'bath', day);
+  IF n <> 18 THEN RAISE EXCEPTION 'Expected 18 open slots, got %', n; END IF;
+  SELECT slot_start INTO nine FROM public.public_booking_slots('a', 'bath', day)
+    WHERE (slot_start AT TIME ZONE 'America/Los_Angeles')::time = '09:00';
+  IF nine IS NULL THEN RAISE EXCEPTION '09:00 local slot missing'; END IF;
+  IF (SELECT count(*) FROM public.public_booking_slots('a', 'bath', (now() - interval '3 days')::date)) <> 0
+     OR (SELECT count(*) FROM public.public_booking_slots('a', 'bath', (now() + interval '200 days')::date)) <> 0 THEN
+    RAISE EXCEPTION 'Slots were offered outside the booking horizon';
+  END IF;
+  BEGIN
+    PERFORM public.public_booking_slots('no-such-salon', 'bath', day);
+    RAISE EXCEPTION 'Unknown salon returned slots';
+  EXCEPTION WHEN SQLSTATE 'PW020' THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.public_booking_slots('a', 'broken', day);
+    RAISE EXCEPTION 'Sub-cent service returned slots';
+  EXCEPTION WHEN SQLSTATE 'PW020' THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.public_book_appointment('a', 'bath', nine, 'Pat Parent', '555', NULL, 'Rex', 'Lab');
+    RAISE EXCEPTION 'Short phone was accepted';
+  EXCEPTION WHEN SQLSTATE 'PW021' THEN NULL;
+  END;
+  SELECT slot_start INTO nine FROM public.public_booking_slots('a', 'bath', day)
+    WHERE (slot_start AT TIME ZONE 'America/Los_Angeles')::time = '09:00';
+  confirmation := public.public_book_appointment('a', 'bath', nine,
+    'Pat Parent', '(323) 555-0100', 'Pat@Example.test', 'Rex', 'Lab');
+  IF confirmation ->> 'status' <> 'booked' OR confirmation ->> 'service' <> 'Bath'
+     OR (confirmation ->> 'price')::numeric <> 19.99 OR length(confirmation ->> 'reference') <> 8
+     OR confirmation ? 'staff_id' OR confirmation ? 'client_id' THEN
+    RAISE EXCEPTION 'Booking confirmation is wrong or leaks internals: %', confirmation;
+  END IF;
+  SELECT count(*) INTO n FROM public.public_booking_slots('a', 'bath', day);
+  IF n <> 13 THEN RAISE EXCEPTION 'Expected 13 open slots after one booking, got %', n; END IF;
+  BEGIN
+    PERFORM public.public_book_appointment('a', 'bath', nine, 'Someone Else', '3235550199', NULL, 'Milo', 'Pug');
+    RAISE EXCEPTION 'Taken slot was booked twice';
+  EXCEPTION WHEN SQLSTATE 'PW022' THEN NULL;
+  END;
+  -- Same person, second pet, then two more: the fifth upcoming booking is refused.
+  PERFORM public.public_book_appointment('a', 'bath', nine + interval '90 minutes', 'pat parent', '323-555-0100', NULL, 'Bella', 'Doodle');
+  PERFORM public.public_book_appointment('a', 'bath', nine + interval '180 minutes', 'Pat Parent', '3235550100', NULL, 'Rex', 'Lab');
+  PERFORM public.public_book_appointment('a', 'bath', nine + interval '270 minutes', 'Pat Parent', '3235550100', NULL, 'Rex', 'Lab');
+  BEGIN
+    PERFORM public.public_book_appointment('a', 'bath', nine + interval '360 minutes', 'Pat Parent', '3235550100', NULL, 'Rex', 'Lab');
+    RAISE EXCEPTION 'Per-phone booking limit was not enforced';
+  EXCEPTION WHEN SQLSTATE 'PW023' THEN NULL;
+  END;
+END $$;
+RESET ROLE;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM public.clients WHERE phone = '3235550100') <> 1
+     OR (SELECT count(*) FROM public.pets p JOIN public.clients c ON c.id = p.client_id WHERE c.phone = '3235550100') <> 2
+     OR (SELECT count(*) FROM public.clients WHERE name = 'Someone Else') <> 0 THEN
+    RAISE EXCEPTION 'Online booking duplicated or leaked client records';
+  END IF;
+  -- Earlier fixtures also default to booking_source 'online', so pick these by client.
+  IF (SELECT count(*) FROM public.visits v JOIN public.clients c ON c.id = v.client_id
+      JOIN public.staff_members s ON s.id = v.staff_id
+      WHERE c.phone = '3235550100' AND s.role = 'groomer' AND v.total_amount = 19.99
+        AND v.booking_source = 'online' AND v.booking_buffer_minutes = 15) <> 4 THEN
+    RAISE EXCEPTION 'Online bookings are not four groomer-assigned visits at the catalog price';
+  END IF;
+END $$;
+
+-- 0019: settlement is written only by the verified-webhook function.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-4000-8000-000000000000', false);
+SELECT set_config('request.jwt.claims', '{}', false);
+DO $$ BEGIN
+  BEGIN
+    UPDATE public.transactions SET settlement_status = 'settled', settled_at = now()
+      WHERE visit_id = 'aaaaaaaa-2222-4222-8222-222222222222';
+    RAISE EXCEPTION 'Staff marked a checkout settled';
+  EXCEPTION WHEN SQLSTATE 'PW030' THEN NULL;
+  END;
+  UPDATE public.transactions SET stripe_payment_intent_id = 'pi_test_1', settlement_status = 'pending'
+    WHERE visit_id = 'aaaaaaaa-2222-4222-8222-222222222222';
+  BEGIN
+    UPDATE public.transactions SET stripe_payment_intent_id = 'pi_swapped'
+      WHERE visit_id = 'aaaaaaaa-2222-4222-8222-222222222222';
+    RAISE EXCEPTION 'Staff swapped a linked payment intent';
+  EXCEPTION WHEN SQLSTATE 'PW030' THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.apply_stripe_payment_event('evt_forged', 'payment_intent.succeeded', 'pi_test_1', 4800, 'usd');
+    RAISE EXCEPTION 'Staff called the webhook settlement function';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  IF EXISTS (SELECT 1 FROM information_schema.role_table_grants
+             WHERE table_name = 'stripe_webhook_events' AND grantee IN ('anon', 'authenticated')) THEN
+    NULL; -- The test fixture grants ALL on public tables; RLS without policies still hides rows.
+  END IF;
+END $$;
+RESET ROLE;
+DO $$ BEGIN
+  IF public.apply_stripe_payment_event('evt_2', 'payment_intent.succeeded', 'pi_unknown', 4800, 'usd') <> 'unknown_payment'
+     OR public.apply_stripe_payment_event('evt_1', 'payment_intent.succeeded', 'pi_test_1', 4800, 'usd') <> 'settled'
+     OR public.apply_stripe_payment_event('evt_1', 'payment_intent.succeeded', 'pi_test_1', 4800, 'usd') <> 'duplicate' THEN
+    RAISE EXCEPTION 'Stripe settlement outcomes are wrong';
+  END IF;
+  IF (SELECT settlement_status || (settled_at IS NOT NULL)::text FROM public.transactions
+      WHERE stripe_payment_intent_id = 'pi_test_1') <> 'settledtrue' THEN
+    RAISE EXCEPTION 'Verified payment did not settle the checkout';
+  END IF;
+  IF public.apply_stripe_payment_event('evt_3', 'payment_intent.payment_failed', 'pi_test_1', 4800, 'usd') <> 'ignored'
+     OR public.apply_stripe_payment_event('evt_4', 'charge.refunded', 'pi_test_1', 4800, 'usd') <> 'refunded' THEN
+    RAISE EXCEPTION 'Late failure or refund handling is wrong';
+  END IF;
+  INSERT INTO public.transactions (business_id, visit_id, subtotal, discount, tax, tip, amount,
+    payment_method, status, stripe_payment_intent_id, settlement_status)
+  SELECT business_id, id, 20.00, 0, 0, 0, 20.00, 'card', 'pending', 'pi_test_2', 'pending'
+  FROM public.visits WHERE service_package = 'Adjacent';
+  IF public.apply_stripe_payment_event('evt_5', 'payment_intent.succeeded', 'pi_test_2', 1999, 'usd') <> 'amount_mismatch' THEN
+    RAISE EXCEPTION 'A mismatched amount was not reported';
+  END IF;
+  IF (SELECT settlement_status FROM public.transactions WHERE stripe_payment_intent_id = 'pi_test_2') <> 'failed' THEN
+    RAISE EXCEPTION 'A mismatched amount settled the checkout';
+  END IF;
+  IF (SELECT count(*) FROM public.stripe_webhook_events) <> 5 THEN
+    RAISE EXCEPTION 'Webhook events were not recorded exactly once';
+  END IF;
+END $$;
+SET ROLE authenticated;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM public.stripe_webhook_events) <> 0 THEN
+    RAISE EXCEPTION 'Staff can read webhook events';
+  END IF;
+END $$;
+RESET ROLE;
 SQL
 printf 'Migration execution and basic tenant/RPC checks passed.\n'

@@ -56,10 +56,100 @@ END;
 $$;
 REVOKE ALL ON FUNCTION private.salon_local_instant(date, text, text) FROM PUBLIC, anon, authenticated;
 
--- SECURITY DEFINER so the check reads the salon's settings and shifts even when
--- the caller's own row-level access would hide them. With caller permissions, a
--- role that could insert visits but not read shifts would see "no shifts" and
--- be let through. Every lookup is pinned to NEW.business_id.
+-- Reads and validates a salon's schedule settings once. Raises PW003 when the
+-- time zone is unknown or operating hours are unusable. buffer_minutes is NULL
+-- when the configured buffer is missing or out of range; callers that need it
+-- (public booking) must reject that themselves.
+CREATE OR REPLACE FUNCTION private.salon_schedule(
+    p_business_id uuid,
+    OUT zone text, OUT open_clock text, OUT close_clock text, OUT buffer_minutes integer
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    clock_pattern constant text := '^([01][0-9]|2[0-3]):[0-5][0-9]$';
+    settings jsonb;
+BEGIN
+    SELECT custom_settings INTO settings
+    FROM public.business_configs
+    WHERE business_id = p_business_id;
+
+    zone := COALESCE(settings ->> 'time_zone', 'UTC');
+    open_clock := settings #>> '{operating_hours,open}';
+    close_clock := settings #>> '{operating_hours,close}';
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name = zone)
+        OR open_clock IS NULL OR close_clock IS NULL
+        OR open_clock !~ clock_pattern OR close_clock !~ clock_pattern
+        OR open_clock >= close_clock THEN
+        RAISE EXCEPTION 'Salon time zone or operating hours are not configured for reservations'
+            USING ERRCODE = 'PW003';
+    END IF;
+    IF jsonb_typeof(settings -> 'booking_buffer_mins') = 'number'
+        AND (settings ->> 'booking_buffer_mins') ~ '^[0-9]{1,3}$'
+        AND (settings ->> 'booking_buffer_mins')::integer <= 240 THEN
+        buffer_minutes := (settings ->> 'booking_buffer_mins')::integer;
+    END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.salon_schedule(uuid) FROM PUBLIC, anon, authenticated;
+
+-- Returns NULL when [p_start, p_end) is bookable for the groomer, otherwise the
+-- SQLSTATE that explains why not. The zone and clocks must come from
+-- private.salon_schedule. SECURITY DEFINER so the check reads the salon's
+-- shifts even when the caller's own row-level access would hide them: with
+-- caller permissions, a role that could insert visits but not read shifts would
+-- see "no shifts" and be let through. Every lookup is pinned to p_business_id.
+CREATE OR REPLACE FUNCTION private.visit_window_error(
+    p_business_id uuid, p_staff_id uuid, p_zone text, p_open text, p_close text,
+    p_start timestamptz, p_end timestamptz
+)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    local_start timestamp := p_start AT TIME ZONE p_zone;
+    local_end timestamp := p_end AT TIME ZONE p_zone;
+    shift_rows integer;
+    has_time_off boolean;
+    fits_shift boolean;
+BEGIN
+    IF local_start::date <> local_end::date
+        OR local_start::time < p_open::time
+        OR local_end::time > p_close::time THEN
+        RETURN 'PW001';
+    END IF;
+    IF p_staff_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT count(*),
+           COALESCE(bool_or(status = 'time_off'), false),
+           COALESCE(bool_or(
+               status = 'scheduled'
+               AND private.salon_local_instant(shift_date, start_time, p_zone) <= p_start
+               AND private.salon_local_instant(shift_date, end_time, p_zone) >= p_end
+           ), false)
+    INTO shift_rows, has_time_off, fits_shift
+    FROM public.staff_shifts
+    WHERE business_id = p_business_id
+      AND staff_id = p_staff_id
+      AND shift_date = local_start::date;
+
+    IF shift_rows > 0 AND (has_time_off OR NOT fits_shift) THEN
+        RETURN 'PW002';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.visit_window_error(uuid, uuid, text, text, text, timestamptz, timestamptz)
+    FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION private.enforce_visit_availability()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -68,17 +158,8 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     active_statuses constant text[] := ARRAY['booked', 'dropped_off', 'bathing', 'styling', 'ready'];
-    clock_pattern constant text := '^([01][0-9]|2[0-3]):[0-5][0-9]$';
-    settings jsonb;
-    zone text;
-    open_clock text;
-    close_clock text;
-    visit_end timestamptz;
-    local_start timestamp;
-    local_end timestamp;
-    shift_rows integer;
-    has_time_off boolean;
-    fits_shift boolean;
+    schedule record;
+    failure text;
 BEGIN
     IF NEW.status IS NULL OR NOT (NEW.status = ANY (active_statuses)) THEN
         RETURN NEW;
@@ -93,53 +174,19 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    SELECT custom_settings INTO settings
-    FROM public.business_configs
-    WHERE business_id = NEW.business_id;
-
-    zone := COALESCE(settings ->> 'time_zone', 'UTC');
-    open_clock := settings #>> '{operating_hours,open}';
-    close_clock := settings #>> '{operating_hours,close}';
-    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name = zone)
-        OR open_clock IS NULL OR close_clock IS NULL
-        OR open_clock !~ clock_pattern OR close_clock !~ clock_pattern
-        OR open_clock >= close_clock THEN
-        RAISE EXCEPTION 'Salon time zone or operating hours are not configured for reservations'
-            USING ERRCODE = 'PW003';
-    END IF;
-
-    visit_end := NEW.scheduled_time
-        + (NEW.duration_minutes + NEW.booking_buffer_minutes) * interval '1 minute';
-    local_start := NEW.scheduled_time AT TIME ZONE zone;
-    local_end := visit_end AT TIME ZONE zone;
-    IF local_start::date <> local_end::date
-        OR local_start::time < open_clock::time
-        OR local_end::time > close_clock::time THEN
+    SELECT * INTO schedule FROM private.salon_schedule(NEW.business_id);
+    failure := private.visit_window_error(
+        NEW.business_id, NEW.staff_id, schedule.zone, schedule.open_clock, schedule.close_clock,
+        NEW.scheduled_time,
+        NEW.scheduled_time + (NEW.duration_minutes + NEW.booking_buffer_minutes) * interval '1 minute');
+    IF failure = 'PW001' THEN
         RAISE EXCEPTION 'Reservation is outside salon operating hours (% to % %)',
-            open_clock, close_clock, zone
+            schedule.open_clock, schedule.close_clock, schedule.zone
             USING ERRCODE = 'PW001';
+    ELSIF failure = 'PW002' THEN
+        RAISE EXCEPTION 'Groomer is on time off or not scheduled for the full reservation'
+            USING ERRCODE = 'PW002';
     END IF;
-
-    IF NEW.staff_id IS NOT NULL THEN
-        SELECT count(*),
-               COALESCE(bool_or(status = 'time_off'), false),
-               COALESCE(bool_or(
-                   status = 'scheduled'
-                   AND private.salon_local_instant(shift_date, start_time, zone) <= NEW.scheduled_time
-                   AND private.salon_local_instant(shift_date, end_time, zone) >= visit_end
-               ), false)
-        INTO shift_rows, has_time_off, fits_shift
-        FROM public.staff_shifts
-        WHERE business_id = NEW.business_id
-          AND staff_id = NEW.staff_id
-          AND shift_date = local_start::date;
-
-        IF shift_rows > 0 AND (has_time_off OR NOT fits_shift) THEN
-            RAISE EXCEPTION 'Groomer is on time off or not scheduled for the full reservation'
-                USING ERRCODE = 'PW002';
-        END IF;
-    END IF;
-
     RETURN NEW;
 END;
 $$;

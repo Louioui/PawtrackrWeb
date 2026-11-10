@@ -229,7 +229,10 @@ export default function LiveAppointmentsPage() {
 
   return <main className="mx-auto max-w-[1600px] px-4 pb-20 pt-6 sm:px-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <Link href="/dashboard" className="text-sm text-periwinkle-300 hover:text-white">← Demo command center</Link>
+      <div className="flex flex-wrap items-center gap-4">
+        <Link href="/dashboard" className="text-sm text-periwinkle-300 hover:text-white">← Demo command center</Link>
+        <Link href="/dashboard/analytics/live" className="text-sm text-periwinkle-300 hover:text-white">Recorded checkout analytics →</Link>
+      </div>
       {signedIn && <button type="button" onClick={signOut} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-200">Sign out</button>}
     </div>
     <header className="mt-5">
@@ -258,6 +261,7 @@ export default function LiveAppointmentsPage() {
       </div>
       {snapshot && <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
         <span>Source: Supabase visits</span><span>Date: {snapshot.date} UTC</span>
+        {bookingOptions?.operating_hours && <span>Hours: {bookingOptions.operating_hours.open}–{bookingOptions.operating_hours.close} UTC</span>}
         <span>Updated: {new Date(snapshot.as_of).toLocaleString('en-US', { timeZone: 'UTC' })} UTC</span>
         <span>{snapshot.active_count} active · {snapshot.completed_count} completed · {snapshot.cancelled_count} canceled</span>
       </div>}

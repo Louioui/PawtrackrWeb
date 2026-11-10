@@ -70,6 +70,22 @@ test('normalizes optional booking options and rejects malformed catalog entries'
   assert.deepEqual(withOptions.booking_options?.groomers.map((g) => g.name), ['Elena', 'Sora']);
   assert.deepEqual(withOptions.booking_options?.services.map((s) => s.id), ['bath', 'scissor']);
 
+  const withHours = normalizeLiveReservationDay({
+    ...day([]),
+    booking_options: {
+      pets: [],
+      groomers: [],
+      services: [],
+      operating_hours: { open: '08:00', close: '18:00' },
+    },
+  }, '2026-12-09');
+  assert.deepEqual(withHours.booking_options?.operating_hours, { open: '08:00', close: '18:00' });
+
+  assert.throws(() => normalizeLiveReservationDay({
+    ...day([]),
+    booking_options: { pets: [], groomers: [], services: [], operating_hours: { open: '18:00', close: '08:00' } },
+  }, '2026-12-09'));
+
   assert.throws(() => normalizeLiveReservationDay({
     ...day([]),
     booking_options: { pets: [], groomers: [], services: [{ id: 'bad', name: 'Bad', duration_minutes: 0 }] },

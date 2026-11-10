@@ -28,10 +28,16 @@ export type LiveBookingServiceOption = {
   duration_minutes: number;
 };
 
+export type LiveOperatingHours = {
+  open: string;
+  close: string;
+};
+
 export type LiveBookingOptions = {
   pets: LiveBookingPetOption[];
   groomers: LiveBookingGroomerOption[];
   services: LiveBookingServiceOption[];
+  operating_hours?: LiveOperatingHours;
 };
 
 export type LiveReservationDay = {
@@ -53,6 +59,12 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
 const dateTime = (value: unknown): value is string => typeof value === 'string' &&
   /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value) && Number.isFinite(Date.parse(value));
 const label = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
+
+export function parseClockMinute(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return null;
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
+}
 
 function normalizeBookingOptions(raw: unknown): LiveBookingOptions {
   if (!object(raw) || !Array.isArray(raw.pets) || !Array.isArray(raw.groomers) || !Array.isArray(raw.services) ||
@@ -90,7 +102,22 @@ function normalizeBookingOptions(raw: unknown): LiveBookingOptions {
   pets.sort((a, b) => a.pet_name.localeCompare(b.pet_name) || a.id.localeCompare(b.id));
   groomers.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   services.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  return { pets, groomers, services };
+  let operatingHours: LiveOperatingHours | undefined;
+  if (raw.operating_hours !== undefined && raw.operating_hours !== null) {
+    if (!object(raw.operating_hours)) throw new Error('Invalid live operating hours');
+    const openMin = parseClockMinute(raw.operating_hours.open);
+    const closeMin = parseClockMinute(raw.operating_hours.close);
+    if (openMin === null || closeMin === null || openMin >= closeMin) {
+      throw new Error('Invalid live operating hours');
+    }
+    operatingHours = { open: raw.operating_hours.open as string, close: raw.operating_hours.close as string };
+  }
+  return {
+    pets,
+    groomers,
+    services,
+    ...(operatingHours ? { operating_hours: operatingHours } : {}),
+  };
 }
 
 export function normalizeLiveReservationDay(input: unknown, expectedDate: string): LiveReservationDay {

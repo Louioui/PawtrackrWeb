@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { parseClockMinute } from '@/lib/live-reservations';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,6 +73,12 @@ export async function GET(req: NextRequest) {
     }
     return [{ id: pkg.id, name: pkg.name, duration_minutes: pkg.durationMinutes }];
   });
+  const rawHours = settings?.operating_hours as Record<string, unknown> | undefined;
+  const openMin = parseClockMinute(rawHours?.open);
+  const closeMin = parseClockMinute(rawHours?.close);
+  const operatingHours = openMin !== null && closeMin !== null && openMin < closeMin
+    ? { open: rawHours?.open as string, close: rawHours?.close as string }
+    : undefined;
   return reply({
     source: 'supabase_visits',
     business_id: membership.business_id,
@@ -96,6 +103,7 @@ export async function GET(req: NextRequest) {
       }),
       groomers: staff.data.filter((member) => member.is_active && member.role === 'groomer').map((member) => ({ id: member.id, name: member.name })),
       services,
+      ...(operatingHours ? { operating_hours: operatingHours } : {}),
     },
   }, 200);
 }
@@ -161,6 +169,15 @@ export async function POST(req: NextRequest) {
       typeof service.price !== 'number' || !Number.isFinite(service.price) || service.price < 0 || Math.round(service.price * 100) !== service.price * 100 ||
       config.currency !== 'USD' || typeof buffer !== 'number' || !Number.isInteger(buffer) || buffer < 0 || buffer > 240) {
     return reply({ error: 'The selected service is not configured for reservations.' }, 422);
+  }
+  const rawHours = settings?.operating_hours as Record<string, unknown> | undefined;
+  const openMin = parseClockMinute(rawHours?.open);
+  const closeMin = parseClockMinute(rawHours?.close);
+  if (openMin !== null && closeMin !== null && openMin < closeMin) {
+    const startMin = start.getUTCHours() * 60 + start.getUTCMinutes();
+    if (startMin < openMin || startMin + service.durationMinutes > closeMin) {
+      return reply({ error: 'Reservation time is outside the salon operating hours.' }, 422);
+    }
   }
 
   const { data: visit, error } = await supabase.from('visits').insert({

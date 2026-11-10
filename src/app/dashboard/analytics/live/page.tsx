@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import Link from 'next/link';
 import { Download, RefreshCw, WifiOff } from 'lucide-react';
 import { formatCents } from '@/lib/pos-math';
+import { LiveEligibleVisit, normalizeEligibleVisits } from '@/lib/production-analytics';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 type WindowDays = 7 | 30 | 90;
@@ -18,11 +19,19 @@ type Snapshot = {
   recorded_checkout_cents: number;
   checkout_count: number;
   daily: Daily[];
+  eligible_visits?: LiveEligibleVisit[];
 };
 
 function isSnapshot(value: unknown, days: WindowDays): value is Snapshot {
   if (!value || typeof value !== 'object') return false;
   const row = value as Partial<Snapshot>;
+  if (row.eligible_visits !== undefined) {
+    try {
+      normalizeEligibleVisits(row.eligible_visits);
+    } catch {
+      return false;
+    }
+  }
   return row.source === 'supabase_recorded_checkouts' && row.settlement_confirmed === false &&
     row.timezone === 'UTC' && row.days === days && typeof row.business_id === 'string' &&
     typeof row.as_of === 'string' && Number.isSafeInteger(row.recorded_checkout_cents) &&
@@ -43,7 +52,15 @@ export default function LiveSalonAnalyticsPage() {
   const [state, setState] = useState<'checking' | 'ready' | 'error'>('checking');
   const [message, setMessage] = useState('');
   const [online, setOnline] = useState(true);
+  const [visitId, setVisitId] = useState('');
+  const [subtotalCents, setSubtotalCents] = useState(0);
+  const [discountCents, setDiscountCents] = useState(0);
+  const [taxCents, setTaxCents] = useState(0);
+  const [tipCents, setTipCents] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'apple_pay' | 'cash' | 'split'>('card');
+  const [saving, setSaving] = useState(false);
   const requestId = useRef(0);
+  const checkoutMenuRef = useRef<HTMLDetailsElement>(null);
 
   const refresh = useCallback(async () => {
     const currentRequest = ++requestId.current;
@@ -119,6 +136,57 @@ export default function LiveSalonAnalyticsPage() {
     setSignedIn(false); setSnapshot(null); setMessage(''); setState('ready');
   };
 
+  const eligibleVisits = useMemo(() => snapshot?.eligible_visits ?? [], [snapshot]);
+  const totalPreviewCents = Math.max(0, subtotalCents - discountCents) + taxCents + tipCents;
+
+  useEffect(() => {
+    if (!eligibleVisits.length) {
+      setVisitId('');
+      return;
+    }
+    const current = eligibleVisits.find((item) => item.id === visitId) ?? eligibleVisits[0];
+    if (current.id !== visitId) {
+      setVisitId(current.id);
+      setSubtotalCents(current.quoted_cents);
+      setDiscountCents(0);
+      setTaxCents(0);
+      setTipCents(0);
+    }
+  }, [eligibleVisits, visitId]);
+
+  const recordCheckout = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!visitId || saving) return;
+    const client = getSupabaseClient();
+    if (!client) return;
+    setSaving(true); setMessage('');
+    try {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session) { setSignedIn(false); setSnapshot(null); setMessage('Your session expired. Sign in again.'); return; }
+      const response = await fetch('/api/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          visit_id: visitId,
+          subtotal_cents: subtotalCents,
+          discount_cents: discountCents,
+          tax_cents: taxCents,
+          tip_cents: tipCents,
+          payment_method: paymentMethod,
+        }),
+      });
+      const body: unknown = await response.json();
+      if (response.status === 401) { setSignedIn(false); setSnapshot(null); setMessage('Your session expired. Sign in again.'); return; }
+      if (!response.ok) throw new Error((body as { error?: string }).error ?? 'The checkout record could not be saved.');
+      checkoutMenuRef.current?.removeAttribute('open');
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The checkout record could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const chart = useMemo(() => {
     if (!snapshot) return { line: '', max: 0 };
     const max = Math.max(1, ...snapshot.daily.map((item) => item.recorded_checkout_cents));
@@ -144,7 +212,10 @@ export default function LiveSalonAnalyticsPage() {
 
   return <main className="mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6">
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-      <Link href="/dashboard/analytics" className="text-sm text-periwinkle-300 hover:text-white">← Demo analytics</Link>
+      <div className="flex flex-wrap items-center gap-4">
+        <Link href="/dashboard/analytics" className="text-sm text-periwinkle-300 hover:text-white">← Demo analytics</Link>
+        <Link href="/dashboard/appointments/live" className="text-sm text-periwinkle-300 hover:text-white">Live appointments →</Link>
+      </div>
       {signedIn && <button type="button" onClick={signOut} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-200">Sign out</button>}
     </div>
     <header className="mb-6">
@@ -170,6 +241,52 @@ export default function LiveSalonAnalyticsPage() {
         </select>
         <button type="button" onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-3 text-sm text-zinc-200"><RefreshCw className="h-4 w-4" /> Refresh</button>
       </div>
+      {eligibleVisits.length > 0 && <details ref={checkoutMenuRef} className="mb-4 rounded-xl border border-white/10 bg-obsidian-800/60 p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-periwinkle-200">Record completed checkout</summary>
+        <p className="mt-1 text-xs text-zinc-400">Records an app checkout for a salon visit in integer cents. Payment settlement remains unverified.</p>
+        <form onSubmit={recordCheckout} className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <label className="block text-xs text-zinc-300 sm:col-span-2">Visit
+            <select
+              value={visitId}
+              onChange={(event) => {
+                const nextId = event.target.value;
+                setVisitId(nextId);
+                const found = eligibleVisits.find((item) => item.id === nextId);
+                if (found) setSubtotalCents(found.quoted_cents);
+              }}
+              className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white"
+            >
+              {eligibleVisits.map((visit) => (
+                <option key={visit.id} value={visit.id}>{visit.pet_name} · {visit.service_package} ({formatCents(visit.quoted_cents)})</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs text-zinc-300">Subtotal (¢)
+            <input type="number" min={0} max={100000000} step={1} required value={subtotalCents} onChange={(event) => setSubtotalCents(Math.max(0, Number(event.target.value) || 0))} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 font-mono text-sm text-white" />
+          </label>
+          <label className="block text-xs text-zinc-300">Discount (¢)
+            <input type="number" min={0} max={subtotalCents} step={1} required value={discountCents} onChange={(event) => setDiscountCents(Math.max(0, Number(event.target.value) || 0))} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 font-mono text-sm text-white" />
+          </label>
+          <label className="block text-xs text-zinc-300">Tax (¢)
+            <input type="number" min={0} max={100000000} step={1} required value={taxCents} onChange={(event) => setTaxCents(Math.max(0, Number(event.target.value) || 0))} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 font-mono text-sm text-white" />
+          </label>
+          <label className="block text-xs text-zinc-300">Tip (¢)
+            <input type="number" min={0} max={100000000} step={1} required value={tipCents} onChange={(event) => setTipCents(Math.max(0, Number(event.target.value) || 0))} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 font-mono text-sm text-white" />
+          </label>
+          <label className="block text-xs text-zinc-300">Payment method
+            <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as 'card' | 'apple_pay' | 'cash' | 'split')} className="mt-1 block min-h-11 w-full rounded-lg border border-white/15 bg-obsidian-900 px-3 text-sm text-white">
+              <option value="card">Card</option>
+              <option value="apple_pay">Apple Pay</option>
+              <option value="cash">Cash</option>
+              <option value="split">Split</option>
+            </select>
+          </label>
+          <div className="flex items-end justify-between gap-3 sm:col-span-2 lg:col-span-5">
+            <span className="font-mono text-sm text-zinc-200">Recorded total: <strong>{formatCents(totalPreviewCents)}</strong></span>
+            <button type="submit" disabled={saving || discountCents > subtotalCents} className="min-h-11 rounded-lg bg-periwinkle-500 px-4 text-sm font-bold text-obsidian-950">{saving ? 'Recording…' : 'Record checkout'}</button>
+          </div>
+        </form>
+      </details>}
       <section className="glass-card p-5 sm:p-6" aria-labelledby="live-chart-heading">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h2 id="live-chart-heading" className="text-xl font-bold text-white">Completed checkout total</h2><p className="mt-1 text-xs text-zinc-400">UTC transaction dates · includes recorded tax and tips</p></div>

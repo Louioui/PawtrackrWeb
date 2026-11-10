@@ -122,6 +122,21 @@ export function CommandPalette({
       icon: Command,
     },
     {
+      label: 'Live Staff Appointments (Supabase RLS)',
+      href: '/dashboard/appointments/live',
+      icon: Command,
+    },
+    {
+      label: 'Live Checkout Analytics (Supabase RLS)',
+      href: '/dashboard/analytics/live',
+      icon: Command,
+    },
+    {
+      label: 'Live Public Salon Directory',
+      href: '/portal/live',
+      icon: Globe,
+    },
+    {
       label: 'Public Self-Booking Storefront (Bespoke Studio)',
       href: '/portal/bespoke-grooming',
       icon: Globe,

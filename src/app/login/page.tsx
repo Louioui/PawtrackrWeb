@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { StaffSignInCard } from '@/components/StaffSignInCard';
 import {
   ArrowRight,
   Building2,
@@ -452,6 +453,9 @@ export default function AccountAndWorkspaceHubPage() {
           track care, or unlock an in-salon groomer station.
         </p>
       </div>
+
+      {/* Real Supabase Auth sign-in for staff, with clearly labeled sample shortcuts */}
+      <StaffSignInCard />
 
       {/* Active Session Status Bar */}
       {activeSession && (

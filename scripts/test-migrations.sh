@@ -771,6 +771,9 @@ BEGIN
   UPDATE public.clients SET name = 'Stolen' WHERE id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   GET DIAGNOSTICS touched = ROW_COUNT;
   IF touched <> 0 THEN RAISE EXCEPTION 'Salon A updated a salon B client'; END IF;
+  UPDATE public.pets SET name = 'Stolen Pet' WHERE id = 'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb';
+  GET DIAGNOSTICS touched = ROW_COUNT;
+  IF touched <> 0 THEN RAISE EXCEPTION 'Salon A updated a salon B pet'; END IF;
   DELETE FROM public.pets WHERE id = 'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb';
   GET DIAGNOSTICS touched = ROW_COUNT;
   IF touched <> 0 THEN RAISE EXCEPTION 'Salon A deleted a salon B pet'; END IF;
@@ -835,7 +838,7 @@ SELECT set_config('request.jwt.claim.sub', '', false);
 -- Salon B's records are exactly as they were.
 DO $$ BEGIN
   IF (SELECT name FROM public.clients WHERE id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') IS DISTINCT FROM 'B Client'
-     OR NOT EXISTS (SELECT 1 FROM public.pets WHERE id = 'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb')
+     OR (SELECT name FROM public.pets WHERE id = 'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb') IS DISTINCT FROM 'B Pet'
      OR (SELECT business_id FROM public.clients WHERE id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
         IS DISTINCT FROM '11111111-1111-4111-8111-111111111111'
      OR EXISTS (SELECT 1 FROM public.visits WHERE service_package LIKE 'Cross-salon%')

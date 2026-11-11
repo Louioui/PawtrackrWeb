@@ -5,12 +5,24 @@ import { readServerLedger, writeServerLedger } from '@/lib/server-db';
 import { PaymentMethod, Transaction } from '@/types/database';
 import { requireLocalDemoApi } from '@/lib/demo-boundary';
 import { canRecordDemoCheckout } from '@/lib/demo-checkout-eligibility';
+import { demoCheckoutInputError } from '@/lib/demo-checkout-input';
 
 export async function POST(req: NextRequest) {
   const blocked = requireLocalDemoApi();
   if (blocked) return blocked;
+  let body: Record<string, unknown>;
   try {
-    const body = await req.json();
+    const parsed: unknown = await req.json();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+    body = parsed as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: 'Checkout details must be a JSON object.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+  }
+  const inputError = demoCheckoutInputError(body);
+  if (inputError) {
+    return NextResponse.json({ error: inputError }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+  }
+  try {
     const {
       business_id,
       visit_id,
@@ -24,7 +36,9 @@ export async function POST(req: NextRequest) {
       custom_tip_dollars = 0,
       payment_method = 'card',
       loyalty_points_per_dollar = 2,
-    } = body;
+      // Shapes were checked by demoCheckoutInputError above.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } = body as Record<string, any>;
 
     if (!business_id || !visit_id) {
       return NextResponse.json(

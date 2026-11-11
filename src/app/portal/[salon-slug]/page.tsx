@@ -1,6 +1,6 @@
 'use client';
 
-import React, { use, useEffect, useMemo, useState } from 'react';
+import React, { use, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Calendar,
@@ -25,6 +25,7 @@ import { BehaviorAuraBadge } from '@/components/BehaviorAuraBadge';
 import {
   loadUniversalStore,
   saveUniversalStore,
+  bundledUniversalStore,
   subscribeUniversalStore,
   resolveStoreTenantBySlug,
   getStoreBusinesses,
@@ -40,6 +41,10 @@ const TIME_SLOTS = [
   '04:30 PM',
 ];
 
+// The sample salons the demo booking service always knows about. Salons
+// created in the demo are known to it only after their setup has synced.
+const BUNDLED_SALON_IDS = new Set(BUSINESSES.map((salon) => salon.id));
+
 export default function SalonBookingPortalPage({
   params,
 }: {
@@ -48,7 +53,10 @@ export default function SalonBookingPortalPage({
   const resolvedParams = use(params);
   const salonSlug = resolvedParams['salon-slug'] || 'bespoke-grooming';
 
-  const [activeStore, setActiveStore] = useState(() => loadUniversalStore());
+  // Start from the bundled store so server and first client render match, then
+  // pick up this browser's saved salons once mounted.
+  const [activeStore, setActiveStore] = useState(() => bundledUniversalStore());
+  useEffect(() => { setActiveStore(loadUniversalStore()); }, []);
   const tenant = useMemo(() => {
     return resolveStoreTenantBySlug(activeStore, salonSlug);
   }, [activeStore, salonSlug]);
@@ -106,8 +114,15 @@ export default function SalonBookingPortalPage({
     clientId: string;
     totalDollars: number;
     loyaltyPointsEstimate: number;
+    // The details as they were submitted. The form stays editable while the
+    // booking is saved, so the confirmation must not read the live form values.
+    petName: string;
+    packageName: string;
+    date: string;
+    slot: string;
   } | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const submitInFlight = useRef(false);
 
   useEffect(() => {
     const tomorrow = new Date();
@@ -123,7 +138,18 @@ export default function SalonBookingPortalPage({
     setSelectedStaffId(groomers[0]?.id ?? '');
     setBookingConfirmation(null);
     setBookingError(null);
-  }, [business.id, bundledConfig, groomers]);
+    // Only when the salon itself changes. Saving a booking refreshes the store,
+    // which hands back new config and staff objects for the same salon; reacting
+    // to those wiped the confirmation the moment it appeared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [business.id]);
+
+  // The roster can change for the same salon (a saved roster replaces the
+  // bundled one). Keep a still-valid choice; otherwise fall back to the first
+  // groomer so the form never submits someone who is no longer on the roster.
+  useEffect(() => {
+    setSelectedStaffId((current) => groomers.some((groomer) => groomer.id === current) ? current : groomers[0]?.id ?? '');
+  }, [groomers]);
 
   useEffect(() => {
     const applyCatalog = (store: ReturnType<typeof loadUniversalStore>) => {
@@ -286,13 +312,20 @@ export default function SalonBookingPortalPage({
 
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    // A ref, not state: two clicks can both run before React re-renders with
+    // isSubmitting, and the second request would then be refused as a conflict
+    // with the booking the first one just made, showing an error for a booking
+    // that actually succeeded.
+    if (submitInFlight.current) return;
     if (!selectedSlotAvailable) {
       setBookingError('This groomer is busy at the selected time. Choose another slot or groomer.');
       return;
     }
+    submitInFlight.current = true;
     setBookingError(null);
     setIsSubmitting(true);
     try {
+      const submitted = { petName, packageName: selectedPackage.name, date: selectedDate, slot: selectedSlot };
       const res = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -326,6 +359,13 @@ export default function SalonBookingPortalPage({
           data.client.business_id !== business.id || !data.pets.length || !data.visits.length ||
           data.pets.some((pet: { business_id: string; client_id: string }) => pet.business_id !== business.id || pet.client_id !== data.client.id) ||
           data.visits.some((visit: { business_id: string; client_id: string }) => visit.business_id !== business.id || visit.client_id !== data.client.id)) {
+        // A salon created in the demo can book once its setup has synced to the
+        // booking service. If the service refuses the request for such a salon,
+        // the likeliest cause is that the sync has not landed, so say that
+        // rather than repeating a generic "check your details".
+        if (data.code === 'salon_setup_pending') {
+          throw new Error(`${business.name} was set up in this browser's demo and the booking service does not have its details yet. Wait a moment and try again, or book with one of the sample salons above.`);
+        }
         throw new Error(data.error || 'Booking could not be saved. Please try again.');
       }
       // A successful demo write supplies the records shown in the command center.
@@ -339,6 +379,10 @@ export default function SalonBookingPortalPage({
       setBookingConfirmation({
         code: data.confirmationCode,
         clientId: data.client.id,
+        petName: submitted.petName,
+        packageName: submitted.packageName,
+        date: submitted.date,
+        slot: submitted.slot,
         totalDollars: data.totalDollars,
         loyaltyPointsEstimate:
           Math.floor(data.totalDollars) * config.loyalty_points_per_dollar,
@@ -346,6 +390,7 @@ export default function SalonBookingPortalPage({
     } catch (error) {
       setBookingError(error instanceof Error ? error.message : 'Booking could not be saved. Please try again.');
     } finally {
+      submitInFlight.current = false;
       setIsSubmitting(false);
     }
   };
@@ -438,15 +483,15 @@ export default function SalonBookingPortalPage({
             CONFIRMATION #{bookingConfirmation.code}
           </span>
           <h2 className="mt-3 text-3xl font-extrabold text-white">
-            Demo booking saved for {petName}
+            Demo booking saved for {bookingConfirmation.petName}
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-sm text-zinc-300">
-            Saved to the local demo calendar for {business.name}
+            Saved to the local demo calendar for {business.name}{' '}
             for{' '}
             <strong className="text-white">
-              {selectedDate} at {selectedSlot}
+              {bookingConfirmation.date} at {bookingConfirmation.slot}
             </strong>
-            . {petName}&apos;s Behavior Auras have been pre-loaded for your
+            . {bookingConfirmation.petName}&apos;s Behavior Auras have been pre-loaded for your
             stylist.
           </p>
 
@@ -454,7 +499,7 @@ export default function SalonBookingPortalPage({
             <div>
               <div className="text-zinc-400">Selected Package</div>
               <div className="mt-1 font-bold text-white">
-                {selectedPackage.name}
+                {bookingConfirmation.packageName}
               </div>
             </div>
             <div>

@@ -780,7 +780,8 @@ wait_for_session race_a "query LIKE '%race_hold%'"
 race_insert "$slot_one" 'Front desk B' \
   | PGAPPNAME=race_b psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_b.log" 2>&1 &
 race_b=$!
-wait_for_session race_b "wait_event_type = 'Lock'"
+# No shell-side wait here: the first session's race_hold already proves this
+# one blocked, and commits the moment it does, so a second poll could miss it.
 set +e
 wait "$race_a"; race_a_status=$?
 wait "$race_b"; race_b_status=$?
@@ -802,7 +803,8 @@ wait_for_session race_c "query LIKE '%race_hold%'"
 race_insert "$slot_two" 'Takes the slot' \
   | PGAPPNAME=race_d psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_d.log" 2>&1 &
 race_d=$!
-wait_for_session race_d "wait_event_type = 'Lock'"
+# No shell-side wait here: the first session's race_hold already proves this
+# one blocked, and commits the moment it does, so a second poll could miss it.
 set +e
 wait "$race_c"; race_c_status=$?
 wait "$race_d"; race_d_status=$?

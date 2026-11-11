@@ -741,18 +741,33 @@ race_count() {
     AND scheduled_time = '$1' AND status = 'booked'"
 }
 
-# Race 1: both sessions commit. The first holds its uncommitted booking open
-# while the second tries the same slot; the second must wait, then fail.
+# Wait until a session reaches a given wait state, so the race does not
+# depend on timing guesses. $1 = application name, $2 = SQL condition.
+wait_for_session() {
+  for _ in $(seq 1 100); do
+    if [ "$(psql -tA -c "SELECT count(*) FROM pg_stat_activity WHERE application_name = '$1' AND $2")" = '1' ]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  printf 'Session %s never reached: %s\n' "$1" "$2" >&2
+  exit 1
+}
+
+# Race 1: both sessions commit. A inserts and holds its booking uncommitted;
+# B starts only once A's row is in place, and is shown to be blocked on it.
 slot_one='2030-03-15 21:00:00+00'   # Friday 2:00 PM Pacific
-{ printf 'BEGIN;\n'; race_insert "$slot_one" 'Front desk A'; printf '\nSELECT pg_sleep(3);\nCOMMIT;\n'; } \
-  | psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_a.log" 2>&1 &
+{ printf 'BEGIN;\n'; race_insert "$slot_one" 'Front desk A'; printf '\nSELECT pg_sleep(5);\nCOMMIT;\n'; } \
+  | PGAPPNAME=race_a psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_a.log" 2>&1 &
 race_a=$!
-sleep 1
+wait_for_session race_a "wait_event = 'PgSleep'"
+race_insert "$slot_one" 'Front desk B' \
+  | PGAPPNAME=race_b psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_b.log" 2>&1 &
+race_b=$!
+wait_for_session race_b "wait_event_type = 'Lock'"
 set +e
-race_insert "$slot_one" 'Front desk B' | psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_b.log" 2>&1
-race_b_status=$?
-wait "$race_a"
-race_a_status=$?
+wait "$race_a"; race_a_status=$?
+wait "$race_b"; race_b_status=$?
 set -e
 if [ "$race_a_status" -ne 0 ] || [ "$race_b_status" -eq 0 ] \
    || ! grep -q 'exclusion constraint' "$temp_dir/race_b.log" \
@@ -762,20 +777,31 @@ if [ "$race_a_status" -ne 0 ] || [ "$race_b_status" -eq 0 ] \
   exit 1
 fi
 
-# Race 2: the first session abandons its booking. The second, which was
-# waiting on it, must then get the slot instead of failing.
+# Race 2: A abandons its booking. B, blocked on it, must then get the slot.
 slot_two='2030-03-15 23:00:00+00'   # Friday 4:00 PM Pacific
-{ printf 'BEGIN;\n'; race_insert "$slot_two" 'Abandoned'; printf '\nSELECT pg_sleep(3);\nROLLBACK;\n'; } \
-  | psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_c.log" 2>&1 &
+{ printf 'BEGIN;\n'; race_insert "$slot_two" 'Abandoned'; printf '\nSELECT pg_sleep(5);\nROLLBACK;\n'; } \
+  | PGAPPNAME=race_c psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_c.log" 2>&1 &
 race_c=$!
-sleep 1
-race_insert "$slot_two" 'Takes the slot' | psql -v ON_ERROR_STOP=1 -q
-wait "$race_c"
-if [ "$(race_count "$slot_two")" != '1' ] \
+wait_for_session race_c "wait_event = 'PgSleep'"
+race_insert "$slot_two" 'Takes the slot' \
+  | PGAPPNAME=race_d psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_d.log" 2>&1 &
+race_d=$!
+wait_for_session race_d "wait_event_type = 'Lock'"
+set +e
+wait "$race_c"; race_c_status=$?
+wait "$race_d"; race_d_status=$?
+set -e
+if [ "$race_c_status" -ne 0 ] || [ "$race_d_status" -ne 0 ] \
+   || [ "$(race_count "$slot_two")" != '1' ] \
    || [ "$(psql -tA -c "SELECT service_package FROM public.visits WHERE scheduled_time = '$slot_two'")" != 'Takes the slot' ]; then
   printf 'A booking waiting on an abandoned one did not get the slot.\n' >&2
+  cat "$temp_dir/race_c.log" "$temp_dir/race_d.log" >&2
   exit 1
 fi
+
+# Not covered here: a public online booking (public_book_appointment, which
+# picks a groomer itself) racing a staff booking. That path needs its own
+# fixture and is the next increment.
 
 # Scenario: opening hours are local time, including the day the clocks
 # change. 2030-03-10 is the US spring-forward Sunday.

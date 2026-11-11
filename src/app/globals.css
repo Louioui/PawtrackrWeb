@@ -44,6 +44,26 @@ body {
   background: #8b95ff;
 }
 
+/* Landing-page motion. Scroll reveals only run where the browser supports
+   scroll-driven animations; everywhere else the content is simply visible. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal-on-scroll {
+      animation: rise-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise-in,
+  .animate-drift,
+  .reveal-on-scroll {
+    animation: none !important;
+  }
+}
+
 @media (min-width: 1024px), (orientation: landscape) and (min-width: 640px) {
   .live-agenda { display: none; }
   .live-timeline { display: block; }

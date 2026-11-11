@@ -1,6 +1,6 @@
 'use client';
 
-import React, { use, useEffect, useMemo, useState } from 'react';
+import React, { use, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Calendar,
@@ -25,6 +25,7 @@ import { BehaviorAuraBadge } from '@/components/BehaviorAuraBadge';
 import {
   loadUniversalStore,
   saveUniversalStore,
+  bundledUniversalStore,
   subscribeUniversalStore,
   resolveStoreTenantBySlug,
   getStoreBusinesses,
@@ -40,6 +41,9 @@ const TIME_SLOTS = [
   '04:30 PM',
 ];
 
+// The sample salons the demo booking service knows about.
+const BUNDLED_SALON_IDS = new Set(BUSINESSES.map((salon) => salon.id));
+
 export default function SalonBookingPortalPage({
   params,
 }: {
@@ -48,7 +52,10 @@ export default function SalonBookingPortalPage({
   const resolvedParams = use(params);
   const salonSlug = resolvedParams['salon-slug'] || 'bespoke-grooming';
 
-  const [activeStore, setActiveStore] = useState(() => loadUniversalStore());
+  // Start from the bundled store so server and first client render match, then
+  // pick up this browser's saved salons once mounted.
+  const [activeStore, setActiveStore] = useState(() => bundledUniversalStore());
+  useEffect(() => { setActiveStore(loadUniversalStore()); }, []);
   const tenant = useMemo(() => {
     return resolveStoreTenantBySlug(activeStore, salonSlug);
   }, [activeStore, salonSlug]);
@@ -108,6 +115,7 @@ export default function SalonBookingPortalPage({
     loyaltyPointsEstimate: number;
   } | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const submitInFlight = useRef(false);
 
   useEffect(() => {
     const tomorrow = new Date();
@@ -123,7 +131,11 @@ export default function SalonBookingPortalPage({
     setSelectedStaffId(groomers[0]?.id ?? '');
     setBookingConfirmation(null);
     setBookingError(null);
-  }, [business.id, bundledConfig, groomers]);
+    // Only when the salon itself changes. Saving a booking refreshes the store,
+    // which hands back new config and staff objects for the same salon; reacting
+    // to those wiped the confirmation the moment it appeared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [business.id]);
 
   useEffect(() => {
     const applyCatalog = (store: ReturnType<typeof loadUniversalStore>) => {
@@ -286,10 +298,22 @@ export default function SalonBookingPortalPage({
 
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    // A ref, not state: two clicks can both run before React re-renders with
+    // isSubmitting, and the second request would then be refused as a conflict
+    // with the booking the first one just made, showing an error for a booking
+    // that actually succeeded.
+    if (submitInFlight.current) return;
     if (!selectedSlotAvailable) {
       setBookingError('This groomer is busy at the selected time. Choose another slot or groomer.');
       return;
     }
+    // Salons created in this browser's demo live only in this browser. The
+    // booking service cannot see them, so say so instead of a generic failure.
+    if (!BUNDLED_SALON_IDS.has(business.id)) {
+      setBookingError(`${business.name} was created in this browser's demo, so it exists only on this device and cannot take online bookings yet. Try booking with one of the sample salons above.`);
+      return;
+    }
+    submitInFlight.current = true;
     setBookingError(null);
     setIsSubmitting(true);
     try {
@@ -346,6 +370,7 @@ export default function SalonBookingPortalPage({
     } catch (error) {
       setBookingError(error instanceof Error ? error.message : 'Booking could not be saved. Please try again.');
     } finally {
+      submitInFlight.current = false;
       setIsSubmitting(false);
     }
   };
@@ -441,7 +466,7 @@ export default function SalonBookingPortalPage({
             Demo booking saved for {petName}
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-sm text-zinc-300">
-            Saved to the local demo calendar for {business.name}
+            Saved to the local demo calendar for {business.name}{' '}
             for{' '}
             <strong className="text-white">
               {selectedDate} at {selectedSlot}

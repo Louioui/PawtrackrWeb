@@ -138,6 +138,13 @@ const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [
   },
 ];
 
+// The bundled sample store. It is what the server renders, so a client
+// component's first render must use it too and read localStorage afterwards;
+// otherwise the two renders differ and React reports a hydration error.
+export function bundledUniversalStore(): UniversalSalonStore {
+  return DEFAULT_STORE;
+}
+
 export function loadUniversalStore(): UniversalSalonStore {
   if (typeof window === 'undefined') {
     return DEFAULT_STORE;

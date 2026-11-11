@@ -754,13 +754,29 @@ wait_for_session() {
   exit 1
 }
 
+# Emits SQL that keeps the first session's transaction open until the named
+# second session is seen blocked on a lock, so the first can never finish
+# early on a slow runner. Gives up loudly after 60 seconds.
+race_hold() {
+  printf "\nDO \$race_hold\$ BEGIN
+  FOR i IN 1..600 LOOP
+    PERFORM pg_stat_clear_snapshot();
+    IF EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = '%s' AND wait_event_type = 'Lock') THEN
+      RETURN;
+    END IF;
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+  RAISE EXCEPTION 'The second booking session never blocked on the first';
+END \$race_hold\$;\n" "$1"
+}
+
 # Race 1: both sessions commit. A inserts and holds its booking uncommitted;
 # B starts only once A's row is in place, and is shown to be blocked on it.
 slot_one='2030-03-15 21:00:00+00'   # Friday 2:00 PM Pacific
-{ printf 'BEGIN;\n'; race_insert "$slot_one" 'Front desk A'; printf '\nSELECT pg_sleep(5);\nCOMMIT;\n'; } \
+{ printf 'BEGIN;\n'; race_insert "$slot_one" 'Front desk A'; race_hold race_b; printf 'COMMIT;\n'; } \
   | PGAPPNAME=race_a psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_a.log" 2>&1 &
 race_a=$!
-wait_for_session race_a "wait_event = 'PgSleep'"
+wait_for_session race_a "query LIKE '%race_hold%'"
 race_insert "$slot_one" 'Front desk B' \
   | PGAPPNAME=race_b psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_b.log" 2>&1 &
 race_b=$!
@@ -779,10 +795,10 @@ fi
 
 # Race 2: A abandons its booking. B, blocked on it, must then get the slot.
 slot_two='2030-03-15 23:00:00+00'   # Friday 4:00 PM Pacific
-{ printf 'BEGIN;\n'; race_insert "$slot_two" 'Abandoned'; printf '\nSELECT pg_sleep(5);\nROLLBACK;\n'; } \
+{ printf 'BEGIN;\n'; race_insert "$slot_two" 'Abandoned'; race_hold race_d; printf 'ROLLBACK;\n'; } \
   | PGAPPNAME=race_c psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_c.log" 2>&1 &
 race_c=$!
-wait_for_session race_c "wait_event = 'PgSleep'"
+wait_for_session race_c "query LIKE '%race_hold%'"
 race_insert "$slot_two" 'Takes the slot' \
   | PGAPPNAME=race_d psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_d.log" 2>&1 &
 race_d=$!

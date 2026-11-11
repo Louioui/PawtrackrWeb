@@ -111,7 +111,7 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <main>
+      <div>
         {/* 1. Hero */}
         <section className="relative overflow-hidden pb-14 pt-32 md:pb-[88px] md:pt-40">
           <div aria-hidden="true" className="pointer-events-none absolute -top-24 left-1/2 h-[520px] w-[720px] -translate-x-1/2 rounded-full bg-periwinkle-500/20 blur-[120px]" />
@@ -202,7 +202,7 @@ export default function LandingPage() {
                   {STEPS.map((step, index) => (
                     <li
                       key={step.title}
-                      className={`flex gap-4 transition-opacity duration-500 ${index <= activeStep ? 'opacity-100' : 'opacity-40'}`}
+                      className={`flex gap-4 transition-opacity duration-500 ${index <= activeStep ? 'opacity-100' : 'lg:opacity-40'}`}
                     >
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-periwinkle-500/50 font-heading font-bold text-periwinkle-500">
                         {index + 1}
@@ -323,7 +323,7 @@ export default function LandingPage() {
             </p>
           </div>
         </section>
-      </main>
+      </div>
 
       <footer className="border-t border-white/10 py-10">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 md:flex-row md:items-center md:justify-between">

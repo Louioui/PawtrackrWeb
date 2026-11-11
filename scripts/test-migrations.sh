@@ -677,21 +677,31 @@ BEGIN
      OR public.apply_stripe_subscription_event('evt_sub_2', 'customer.subscription.updated', '2026-11-10 10:05+00', NULL, 'cus_a', 'sub_a', 'active', NULL) <> 'duplicate' THEN
     RAISE EXCEPTION 'Subscription link, activation, or replay handling is wrong';
   END IF;
+  -- IS DISTINCT FROM, not <>: a NULL column makes the whole string NULL, and
+  -- NULL <> 'x' is not true, so <> would let a cleared id pass unnoticed.
   IF (SELECT subscription_status || '|' || subscription_plan || '|' || stripe_customer_id || '|' || stripe_subscription_id
-      FROM public.businesses WHERE id = salon) <> 'active|solo_van|cus_a|sub_a' THEN
+      FROM public.businesses WHERE id = salon) IS DISTINCT FROM 'active|solo_van|cus_a|sub_a' THEN
     RAISE EXCEPTION 'Verified subscription events did not produce the expected billing state';
   END IF;
 
   -- A late, older event must not overwrite newer state; a foreign customer must not attach.
   IF public.apply_stripe_subscription_event('evt_sub_3', 'customer.subscription.updated', '2026-11-10 10:01+00', NULL, 'cus_a', 'sub_a', 'trialing', NULL) <> 'stale'
      OR public.apply_stripe_subscription_event('evt_sub_4', 'customer.subscription.updated', '2026-11-10 10:06+00', salon, 'cus_other', 'sub_x', 'canceled', NULL) <> 'customer_mismatch'
-     OR public.apply_stripe_subscription_event('evt_sub_5', 'customer.subscription.updated', '2026-11-10 10:07+00', NULL, 'cus_none', 'sub_none', 'active', NULL) <> 'unknown_business'
-     OR (SELECT subscription_status FROM public.businesses WHERE id = salon) <> 'active' THEN
+     OR public.apply_stripe_subscription_event('evt_sub_5', 'customer.subscription.updated', '2026-11-10 10:07+00', NULL, 'cus_none', 'sub_none', 'active', NULL) <> 'unknown_business' THEN
+    RAISE EXCEPTION 'Stale, mismatched, or unknown subscription events were not rejected';
+  END IF;
+  IF (SELECT subscription_status || '|' || stripe_customer_id || '|' || stripe_subscription_id
+      FROM public.businesses WHERE id = salon) IS DISTINCT FROM 'active|cus_a|sub_a' THEN
     RAISE EXCEPTION 'Stale, mismatched, or unknown subscription events changed billing state';
   END IF;
 
-  IF public.apply_stripe_subscription_event('evt_sub_6', 'customer.subscription.deleted', '2026-11-10 11:00+00', NULL, 'cus_a', 'sub_a', 'canceled', NULL) <> 'updated'
-     OR (SELECT subscription_status || '|' || COALESCE(stripe_subscription_id, 'none') FROM public.businesses WHERE id = salon) <> 'canceled|none' THEN
+  -- The state check is a separate statement on purpose: a subquery in the same
+  -- statement as the function call reads the snapshot from before its update.
+  IF public.apply_stripe_subscription_event('evt_sub_6', 'customer.subscription.deleted', '2026-11-10 11:00+00', NULL, 'cus_a', 'sub_a', 'canceled', NULL) <> 'updated' THEN
+    RAISE EXCEPTION 'Subscription cancellation was not accepted';
+  END IF;
+  IF (SELECT subscription_status || '|' || stripe_customer_id || '|' || COALESCE(stripe_subscription_id, 'none')
+      FROM public.businesses WHERE id = salon) IS DISTINCT FROM 'canceled|cus_a|none' THEN
     RAISE EXCEPTION 'Subscription cancellation was not applied';
   END IF;
 

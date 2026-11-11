@@ -708,4 +708,120 @@ BEGIN
   UPDATE public.businesses SET subscription_status = 'active' WHERE id = salon;
 END $$;
 SQL
+# ---------------------------------------------------------------------------
+# Scenario: a competing salon owner edits their own requests to reach
+# another salon's records. Signed in as salon A, every attempt to read,
+# change, delete, re-home or link to salon B's data must fail or touch
+# nothing, and salon B's rows must be unchanged afterwards.
+# ---------------------------------------------------------------------------
+psql -v ON_ERROR_STOP=1 -q <<'SQL'
+UPDATE public.staff_members SET is_active = true, business_id = '11111111-1111-4111-8111-111111111111'
+  WHERE auth_user_id = 'aaaaaaaa-0000-4000-8000-000000000000';
+INSERT INTO public.pets (id, business_id, client_id, name, breed) VALUES
+  ('bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb', '22222222-2222-4222-8222-222222222222',
+   'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'B Pet', 'Collie');
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-4000-8000-000000000000', false);
+SELECT set_config('request.jwt.claims', '{}', false);
+DO $$
+DECLARE
+  touched integer;
+  rejected boolean;
+  a_pet uuid;
+  a_staff uuid;
+BEGIN
+  SELECT id INTO STRICT a_pet FROM public.pets WHERE name = 'Valid Pet';
+  SELECT id INTO STRICT a_staff FROM public.staff_members WHERE auth_user_id = 'aaaaaaaa-0000-4000-8000-000000000000';
+  IF private.current_business_id() IS DISTINCT FROM '11111111-1111-4111-8111-111111111111' THEN
+    RAISE EXCEPTION 'Tenant fixture is not signed in as salon A';
+  END IF;
+
+  -- Reading B's data by id or by business returns nothing.
+  IF (SELECT count(*) FROM public.clients WHERE id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') <> 0
+     OR (SELECT count(*) FROM public.pets WHERE business_id = '22222222-2222-4222-8222-222222222222') <> 0
+     OR (SELECT count(*) FROM public.visits WHERE business_id = '22222222-2222-4222-8222-222222222222') <> 0
+     OR (SELECT count(*) FROM public.transactions WHERE business_id = '22222222-2222-4222-8222-222222222222') <> 0
+     OR (SELECT count(*) FROM public.staff_members WHERE business_id = '22222222-2222-4222-8222-222222222222') <> 0 THEN
+    RAISE EXCEPTION 'Salon A can read salon B rows';
+  END IF;
+
+  -- Changing or deleting B's rows by id touches nothing.
+  UPDATE public.clients SET name = 'Stolen' WHERE id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  GET DIAGNOSTICS touched = ROW_COUNT;
+  IF touched <> 0 THEN RAISE EXCEPTION 'Salon A updated a salon B client'; END IF;
+  DELETE FROM public.pets WHERE id = 'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb';
+  GET DIAGNOSTICS touched = ROW_COUNT;
+  IF touched <> 0 THEN RAISE EXCEPTION 'Salon A deleted a salon B pet'; END IF;
+  DELETE FROM public.clients WHERE id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  GET DIAGNOSTICS touched = ROW_COUNT;
+  IF touched <> 0 THEN RAISE EXCEPTION 'Salon A deleted a salon B client'; END IF;
+
+  -- Moving A's own client into salon B is refused.
+  rejected := false;
+  BEGIN
+    UPDATE public.clients SET business_id = '22222222-2222-4222-8222-222222222222'
+      WHERE id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    GET DIAGNOSTICS touched = ROW_COUNT;
+    rejected := touched = 0;
+  -- Only the tenant guards count as a rejection: 23514 is the cross-salon
+  -- reference check, 42501 is row-level security. Anything else fails loudly.
+  EXCEPTION WHEN SQLSTATE '23514' OR insufficient_privilege OR foreign_key_violation THEN rejected := true;
+  END;
+  IF NOT rejected THEN RAISE EXCEPTION 'Salon A moved its client into salon B'; END IF;
+
+  -- A pet in salon A cannot be attached to salon B's client.
+  rejected := false;
+  BEGIN
+    INSERT INTO public.pets (business_id, client_id, name, breed) VALUES
+      ('11111111-1111-4111-8111-111111111111', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'Linked Pet', 'Pug');
+  -- Only the tenant guards count as a rejection: 23514 is the cross-salon
+  -- reference check, 42501 is row-level security. Anything else fails loudly.
+  EXCEPTION WHEN SQLSTATE '23514' OR insufficient_privilege OR foreign_key_violation THEN rejected := true;
+  END;
+  IF NOT rejected THEN RAISE EXCEPTION 'Salon A attached a pet to a salon B client'; END IF;
+
+  -- A visit in salon A cannot point at salon B's pet or client.
+  rejected := false;
+  BEGIN
+    INSERT INTO public.visits (business_id, client_id, pet_id, staff_id, service_package,
+      total_amount, scheduled_time, duration_minutes)
+    VALUES ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb', a_staff,
+      'Cross-salon pet', 20, '2030-01-03 09:00:00+00', 30);
+  -- Only the tenant guards count as a rejection: 23514 is the cross-salon
+  -- reference check, 42501 is row-level security. Anything else fails loudly.
+  EXCEPTION WHEN SQLSTATE '23514' OR insufficient_privilege OR foreign_key_violation THEN rejected := true;
+  END;
+  IF NOT rejected THEN RAISE EXCEPTION 'Salon A booked a visit for a salon B pet'; END IF;
+
+  rejected := false;
+  BEGIN
+    INSERT INTO public.visits (business_id, client_id, pet_id, staff_id, service_package,
+      total_amount, scheduled_time, duration_minutes)
+    VALUES ('11111111-1111-4111-8111-111111111111', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      a_pet, a_staff,
+      'Cross-salon client', 20, '2030-01-03 10:00:00+00', 30);
+  -- Only the tenant guards count as a rejection: 23514 is the cross-salon
+  -- reference check, 42501 is row-level security. Anything else fails loudly.
+  EXCEPTION WHEN SQLSTATE '23514' OR insufficient_privilege OR foreign_key_violation THEN rejected := true;
+  END;
+  IF NOT rejected THEN RAISE EXCEPTION 'Salon A booked a visit for a salon B client'; END IF;
+END $$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', '', false);
+
+-- Salon B's records are exactly as they were.
+DO $$ BEGIN
+  IF (SELECT name FROM public.clients WHERE id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') IS DISTINCT FROM 'B Client'
+     OR NOT EXISTS (SELECT 1 FROM public.pets WHERE id = 'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb')
+     OR (SELECT business_id FROM public.clients WHERE id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+        IS DISTINCT FROM '11111111-1111-4111-8111-111111111111'
+     OR EXISTS (SELECT 1 FROM public.visits WHERE service_package LIKE 'Cross-salon%')
+     OR EXISTS (SELECT 1 FROM public.pets WHERE name = 'Linked Pet') THEN
+    RAISE EXCEPTION 'Salon B data changed during the cross-tenant attempts';
+  END IF;
+END $$;
+SQL
+printf 'Cross-tenant access scenarios passed.\n'
 printf 'Migration execution and basic tenant/RPC checks passed.\n'

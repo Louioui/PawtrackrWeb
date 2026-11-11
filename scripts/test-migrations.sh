@@ -719,8 +719,8 @@ INSERT INTO public.businesses (id, name, slug, owner_email) VALUES
 INSERT INTO public.business_configs (business_id, custom_settings) VALUES
   ('33333333-3333-4333-8333-333333333333',
    '{"time_zone": "America/Los_Angeles", "operating_hours": {"open": "08:00", "close": "18:00"}}');
-INSERT INTO public.clients (id, business_id, name) VALUES
-  ('33333333-cccc-4ccc-8ccc-333333333333', '33333333-3333-4333-8333-333333333333', 'Race Client');
+INSERT INTO public.clients (id, business_id, name, phone) VALUES
+  ('33333333-cccc-4ccc-8ccc-333333333333', '33333333-3333-4333-8333-333333333333', 'Race Client', '5');
 INSERT INTO public.pets (id, business_id, client_id, name, breed) VALUES
   ('33333333-dddd-4ddd-8ddd-333333333333', '33333333-3333-4333-8333-333333333333',
    '33333333-cccc-4ccc-8ccc-333333333333', 'Race Pet', 'Poodle');

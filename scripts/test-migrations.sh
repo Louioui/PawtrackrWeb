@@ -720,6 +720,27 @@ UPDATE public.staff_members SET is_active = true, business_id = '11111111-1111-4
 INSERT INTO public.pets (id, business_id, client_id, name, breed) VALUES
   ('bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb', '22222222-2222-4222-8222-222222222222',
    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'B Pet', 'Collie');
+-- Give salon B a visit and a completed checkout, so the read checks below
+-- have something to hide. Without these, a count of zero proves nothing.
+UPDATE public.business_configs
+  SET custom_settings = COALESCE(custom_settings, '{}'::jsonb)
+    || '{"time_zone": "UTC", "operating_hours": {"open": "08:00", "close": "18:00"}}'::jsonb
+  WHERE business_id = '22222222-2222-4222-8222-222222222222';
+INSERT INTO public.visits (id, business_id, client_id, pet_id, staff_id, service_package,
+  total_amount, scheduled_time, duration_minutes)
+VALUES ('bbbbbbbb-ffff-4fff-8fff-bbbbbbbbbbbb', '22222222-2222-4222-8222-222222222222',
+  'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb', NULL,
+  'B Visit', 48, '2030-01-04 10:00:00+00', 30);
+INSERT INTO public.transactions (business_id, visit_id, subtotal, discount, tax, tip, amount, payment_method, status)
+VALUES ('22222222-2222-4222-8222-222222222222', 'bbbbbbbb-ffff-4fff-8fff-bbbbbbbbbbbb',
+  40.00, 0.00, 3.00, 5.00, 48.00, 'cash', 'completed');
+DO $$ BEGIN
+  IF (SELECT count(*) FROM public.visits WHERE business_id = '22222222-2222-4222-8222-222222222222') = 0
+     OR (SELECT count(*) FROM public.transactions WHERE business_id = '22222222-2222-4222-8222-222222222222') = 0
+     OR (SELECT count(*) FROM public.staff_members WHERE business_id = '22222222-2222-4222-8222-222222222222') = 0 THEN
+    RAISE EXCEPTION 'Salon B fixture has no visit, checkout or staff to protect';
+  END IF;
+END $$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-4000-8000-000000000000', false);
@@ -788,7 +809,7 @@ BEGIN
       total_amount, scheduled_time, duration_minutes)
     VALUES ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'bbbbbbbb-eeee-4eee-8eee-bbbbbbbbbbbb', a_staff,
-      'Cross-salon pet', 20, '2030-01-03 09:00:00+00', 30);
+      'Cross-salon pet', 20, '2030-01-03 17:00:00+00', 30);
   -- Only the tenant guards count as a rejection: 23514 is the cross-salon
   -- reference check, 42501 is row-level security. Anything else fails loudly.
   EXCEPTION WHEN SQLSTATE '23514' OR insufficient_privilege OR foreign_key_violation THEN rejected := true;
@@ -801,7 +822,7 @@ BEGIN
       total_amount, scheduled_time, duration_minutes)
     VALUES ('11111111-1111-4111-8111-111111111111', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       a_pet, a_staff,
-      'Cross-salon client', 20, '2030-01-03 10:00:00+00', 30);
+      'Cross-salon client', 20, '2030-01-03 18:00:00+00', 30);
   -- Only the tenant guards count as a rejection: 23514 is the cross-salon
   -- reference check, 42501 is row-level security. Anything else fails loudly.
   EXCEPTION WHEN SQLSTATE '23514' OR insufficient_privilege OR foreign_key_violation THEN rejected := true;

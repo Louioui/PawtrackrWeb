@@ -114,6 +114,12 @@ export default function SalonBookingPortalPage({
     clientId: string;
     totalDollars: number;
     loyaltyPointsEstimate: number;
+    // The details as they were submitted. The form stays editable while the
+    // booking is saved, so the confirmation must not read the live form values.
+    petName: string;
+    packageName: string;
+    date: string;
+    slot: string;
   } | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const submitInFlight = useRef(false);
@@ -319,6 +325,7 @@ export default function SalonBookingPortalPage({
     setBookingError(null);
     setIsSubmitting(true);
     try {
+      const submitted = { petName, packageName: selectedPackage.name, date: selectedDate, slot: selectedSlot };
       const res = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -356,7 +363,7 @@ export default function SalonBookingPortalPage({
         // booking service. If the service refuses the request for such a salon,
         // the likeliest cause is that the sync has not landed, so say that
         // rather than repeating a generic "check your details".
-        if (res.status === 400 && !BUNDLED_SALON_IDS.has(business.id)) {
+        if (data.code === 'salon_setup_pending') {
           throw new Error(`${business.name} was set up in this browser's demo and the booking service does not have its details yet. Wait a moment and try again, or book with one of the sample salons above.`);
         }
         throw new Error(data.error || 'Booking could not be saved. Please try again.');
@@ -372,6 +379,10 @@ export default function SalonBookingPortalPage({
       setBookingConfirmation({
         code: data.confirmationCode,
         clientId: data.client.id,
+        petName: submitted.petName,
+        packageName: submitted.packageName,
+        date: submitted.date,
+        slot: submitted.slot,
         totalDollars: data.totalDollars,
         loyaltyPointsEstimate:
           Math.floor(data.totalDollars) * config.loyalty_points_per_dollar,
@@ -472,15 +483,15 @@ export default function SalonBookingPortalPage({
             CONFIRMATION #{bookingConfirmation.code}
           </span>
           <h2 className="mt-3 text-3xl font-extrabold text-white">
-            Demo booking saved for {petName}
+            Demo booking saved for {bookingConfirmation.petName}
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-sm text-zinc-300">
             Saved to the local demo calendar for {business.name}{' '}
             for{' '}
             <strong className="text-white">
-              {selectedDate} at {selectedSlot}
+              {bookingConfirmation.date} at {bookingConfirmation.slot}
             </strong>
-            . {petName}&apos;s Behavior Auras have been pre-loaded for your
+            . {bookingConfirmation.petName}&apos;s Behavior Auras have been pre-loaded for your
             stylist.
           </p>
 
@@ -488,7 +499,7 @@ export default function SalonBookingPortalPage({
             <div>
               <div className="text-zinc-400">Selected Package</div>
               <div className="mt-1 font-bold text-white">
-                {selectedPackage.name}
+                {bookingConfirmation.packageName}
               </div>
             </div>
             <div>

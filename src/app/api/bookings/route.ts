@@ -75,7 +75,13 @@ export async function POST(req: NextRequest) {
       new Date(`${match[1]}T00:00:00Z`).toISOString().slice(0, 10) === match[1] &&
       match[1] >= new Date().toISOString().slice(0, 10));
 
-    if (!business || !config || !servicePackage || !validAddons || !staff ||
+    // The salon itself is unknown to this service: its setup has not synced.
+    // Distinct from bad booking details, so the page can say what went wrong.
+    if (!business || !config) {
+      return NextResponse.json({ error: 'This salon is not ready for online booking yet.', code: 'salon_setup_pending' }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
+    }
+
+    if (!servicePackage || !validAddons || !staff ||
         !clientName || !clientPhone || !clientEmail || !petName || !petBreed ||
         clientPhone.replace(/\D/g, '').length < 7 ||
         !validWeight(body.pet_weight_lbs) || !validTags || !validDate || !SLOTS.has(match![2]) ||

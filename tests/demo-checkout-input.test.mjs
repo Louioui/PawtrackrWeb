@@ -23,10 +23,21 @@ test('prices that are negative, not numbers, or too large are refused', () => {
 
 test('tax, tip and payment method stay inside sensible bounds', () => {
   assert.notEqual(demoCheckoutInputError({ ...ok, tax_rate_percent: 1000 }), null);
+  assert.equal(demoCheckoutInputError({ ...ok, tax_rate_percent: 30 }), null);
+  assert.notEqual(demoCheckoutInputError({ ...ok, tax_rate_percent: 30.01 }), null);
   assert.notEqual(demoCheckoutInputError({ ...ok, tax_rate_percent: -10 }), null);
   assert.notEqual(demoCheckoutInputError({ ...ok, tip_percent: 500 }), null);
   assert.notEqual(demoCheckoutInputError({ ...ok, tip_mode: 'custom', custom_tip_dollars: -50 }), null);
   assert.notEqual(demoCheckoutInputError({ ...ok, tip_mode: 'steal' }), null);
   assert.notEqual(demoCheckoutInputError({ ...ok, payment_method: 'bitcoin' }), null);
   for (const method of ['card', 'apple_pay', 'cash', 'split']) assert.equal(demoCheckoutInputError({ ...ok, payment_method: method }), null);
+});
+
+test('an explicit null is refused rather than treated as the default', () => {
+  for (const field of ['tip_mode', 'payment_method', 'addon_items_dollars', 'discount_dollars', 'tax_rate_percent',
+    'tip_percent', 'custom_tip_dollars', 'safety_surcharge_dollars', 'loyalty_points_per_dollar']) {
+    assert.notEqual(demoCheckoutInputError({ ...ok, [field]: null }), null, field);
+    const { [field]: _omitted, ...without } = ok;
+    assert.equal(demoCheckoutInputError(without), null, `${field} omitted`);
+  }
 });

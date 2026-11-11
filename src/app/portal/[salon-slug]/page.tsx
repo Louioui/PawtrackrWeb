@@ -41,7 +41,8 @@ const TIME_SLOTS = [
   '04:30 PM',
 ];
 
-// The sample salons the demo booking service knows about.
+// The sample salons the demo booking service always knows about. Salons
+// created in the demo are known to it only after their setup has synced.
 const BUNDLED_SALON_IDS = new Set(BUSINESSES.map((salon) => salon.id));
 
 export default function SalonBookingPortalPage({
@@ -136,6 +137,13 @@ export default function SalonBookingPortalPage({
     // to those wiped the confirmation the moment it appeared.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [business.id]);
+
+  // The roster can change for the same salon (a saved roster replaces the
+  // bundled one). Keep a still-valid choice; otherwise fall back to the first
+  // groomer so the form never submits someone who is no longer on the roster.
+  useEffect(() => {
+    setSelectedStaffId((current) => groomers.some((groomer) => groomer.id === current) ? current : groomers[0]?.id ?? '');
+  }, [groomers]);
 
   useEffect(() => {
     const applyCatalog = (store: ReturnType<typeof loadUniversalStore>) => {
@@ -307,12 +315,6 @@ export default function SalonBookingPortalPage({
       setBookingError('This groomer is busy at the selected time. Choose another slot or groomer.');
       return;
     }
-    // Salons created in this browser's demo live only in this browser. The
-    // booking service cannot see them, so say so instead of a generic failure.
-    if (!BUNDLED_SALON_IDS.has(business.id)) {
-      setBookingError(`${business.name} was created in this browser's demo, so it exists only on this device and cannot take online bookings yet. Try booking with one of the sample salons above.`);
-      return;
-    }
     submitInFlight.current = true;
     setBookingError(null);
     setIsSubmitting(true);
@@ -350,6 +352,13 @@ export default function SalonBookingPortalPage({
           data.client.business_id !== business.id || !data.pets.length || !data.visits.length ||
           data.pets.some((pet: { business_id: string; client_id: string }) => pet.business_id !== business.id || pet.client_id !== data.client.id) ||
           data.visits.some((visit: { business_id: string; client_id: string }) => visit.business_id !== business.id || visit.client_id !== data.client.id)) {
+        // A salon created in the demo can book once its setup has synced to the
+        // booking service. If the service refuses the request for such a salon,
+        // the likeliest cause is that the sync has not landed, so say that
+        // rather than repeating a generic "check your details".
+        if (res.status === 400 && !BUNDLED_SALON_IDS.has(business.id)) {
+          throw new Error(`${business.name} was set up in this browser's demo and the booking service does not have its details yet. Wait a moment and try again, or book with one of the sample salons above.`);
+        }
         throw new Error(data.error || 'Booking could not be saved. Please try again.');
       }
       // A successful demo write supplies the records shown in the command center.

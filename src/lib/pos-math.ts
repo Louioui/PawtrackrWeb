@@ -347,6 +347,7 @@ export function reconcileEndOfDayDrawer(
   let totalCollectedCents = 0;
   let cardCents = 0;
   let cashCents = 0;
+  let splitCents = 0;
 
   for (const tx of transactions) {
     const sub = toCents(tx.subtotal);
@@ -361,8 +362,13 @@ export function reconcileEndOfDayDrawer(
     tipCents += tip;
     totalCollectedCents += amt;
 
+    // A split payment is stored as one record without the cash and card
+    // portions, so it cannot be attributed to either. Counting it as card
+    // would understate the cash that should be in the tray.
     if (tx.payment_method === 'cash') {
       cashCents += amt;
+    } else if (tx.payment_method === 'split') {
+      splitCents += amt;
     } else {
       cardCents += amt;
     }
@@ -379,6 +385,7 @@ export function reconcileEndOfDayDrawer(
     totalCollectedDollars: fromCents(totalCollectedCents),
     cardDollars: fromCents(cardCents),
     cashDollars: fromCents(cashCents),
+    splitDollars: fromCents(splitCents),
     varianceCents,
     isBalancedToPenny: varianceCents === 0,
   };

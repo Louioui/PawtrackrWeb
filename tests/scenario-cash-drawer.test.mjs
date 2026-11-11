@@ -96,6 +96,11 @@ test('every realistic ticket balances: subtotal minus discount plus tax plus tip
     // Tax is charged on the discounted price, at the integer reference rate.
     const bps = RATES.find((rate) => rate.percent === params.taxRatePercent).bps;
     assert.equal(r.taxCents, referencePercentOf(r.taxableSubtotalCents, bps));
+    // The tip is what was asked for, not just whatever keeps the total consistent.
+    const expectedTip = params.tipMode === 'percent'
+      ? referencePercentOf(r.taxableSubtotalCents, Math.round(params.tipPercent * 100))
+      : Math.round(params.customTipDollars * 100);
+    assert.equal(r.tipCents, expectedTip);
   }
   assert.ok(tickets > 3000);
 });

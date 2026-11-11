@@ -16,8 +16,15 @@ export async function POST(req: NextRequest) {
   const blocked = requireLocalDemoApi();
   if (blocked) return blocked;
 
+  // A body that is not JSON is the caller's mistake, not a server failure.
+  let payload: unknown;
   try {
-    const payload: unknown = await req.json();
+    payload = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Booking details must be valid JSON.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  try {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return NextResponse.json({ error: 'Booking details must be an object.' }, { status: 400 });
     }
@@ -37,7 +44,9 @@ export async function POST(req: NextRequest) {
     const validAddons = Array.isArray(addonIds) && addonIds.length <= 20 &&
       addonIds.every((id) => typeof id === 'string' && config?.custom_settings.addons.some((addon) => addon.id === id)) &&
       new Set(addonIds).size === addonIds.length;
-    const selectedAddons = validAddons
+    // config is undefined for an unknown salon; an empty add-on list would
+    // otherwise pass validation and dereference it.
+    const selectedAddons = validAddons && config
       ? config.custom_settings.addons.filter((addon) => addonIds.includes(addon.id))
       : [];
     const staffId = text(body.staff_id, 100);

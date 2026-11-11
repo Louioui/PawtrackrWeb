@@ -873,7 +873,7 @@ export default function DashboardCommandCenter() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-emerald-300">
               <ShieldCheck className="h-3.5 w-3.5" />
-              TENANT ISOLATED: {activeBusiness.id.slice(0, 8)}
+              SAMPLE SALON: {activeBusiness.id.slice(0, 8)}
             </span>
             <span className="rounded-full border border-periwinkle-500/30 bg-periwinkle-500/10 px-2.5 py-0.5 text-[11px] font-medium text-periwinkle-300">
               Tax Rate: {activeConfig.tax_rate}%

@@ -45,6 +45,9 @@ export default function LiveFleetPage() {
   const [telemetryModalOpen, setTelemetryModalOpen] = useState(false);
   const [smsModalStop, setSmsModalStop] = useState<FleetStop | null>(null);
   const [smsCopied, setSmsCopied] = useState(false);
+  const [advancingVisitId, setAdvancingVisitId] = useState<string | null>(null);
+  const [fleetError, setFleetError] = useState<string | null>(null);
+  const [isSubmittingTelemetry, setIsSubmittingTelemetry] = useState(false);
   const [telemetryForm, setTelemetryForm] = useState({
     battery_pct: 85,
     water_tank_pct: 80,
@@ -129,6 +132,8 @@ export default function LiveFleetPage() {
   const routeMetrics = calculateRouteMetrics(stops);
 
   const handleAdvanceStatus = async (visitId: string, nextStatus: CurbsideStatus) => {
+    setFleetError(null);
+    setAdvancingVisitId(visitId);
     try {
       const res = await fetch(`/api/fleet/stops/${visitId}/advance`, {
         method: 'POST',
@@ -137,19 +142,23 @@ export default function LiveFleetPage() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(`Stop transition error: ${err.error || 'Failed'}`);
+        setFleetError(`Stop transition error: ${err.error || 'Failed'}`);
         return;
       }
-      fetchFleetData();
+      await fetchFleetData();
     } catch {
-      alert('Network error advancing stop status');
+      setFleetError('Network error advancing stop status');
+    } finally {
+      setAdvancingVisitId(null);
     }
   };
 
   const handleUpdateTelemetry = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeVan) return;
+    if (!activeVan || isSubmittingTelemetry) return;
 
+    setFleetError(null);
+    setIsSubmittingTelemetry(true);
     try {
       const res = await fetch('/api/fleet/dispatch', {
         method: 'POST',
@@ -165,13 +174,15 @@ export default function LiveFleetPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(`Telemetry update error: ${err.error || 'Failed'}`);
+        setFleetError(`Telemetry update error: ${err.error || 'Failed'}`);
         return;
       }
       setTelemetryModalOpen(false);
-      fetchFleetData();
+      await fetchFleetData();
     } catch {
-      alert('Network error updating telemetry');
+      setFleetError('Network error updating telemetry');
+    } finally {
+      setIsSubmittingTelemetry(false);
     }
   };
 
@@ -216,9 +227,19 @@ export default function LiveFleetPage() {
           </div>
         </div>
 
-        {errorMsg && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300">
-            {errorMsg}
+        {(errorMsg || fleetError) && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300 flex items-center justify-between">
+            <span>{errorMsg || fleetError}</span>
+            {fleetError && (
+              <button
+                type="button"
+                onClick={() => setFleetError(null)}
+                className="text-amber-400 hover:text-white ml-2"
+                aria-label="Dismiss error"
+              >
+                ✕
+              </button>
+            )}
           </div>
         )}
 
@@ -424,37 +445,49 @@ export default function LiveFleetPage() {
 
                         {stop.curbsideStatus === 'scheduled' && (
                           <button
+                            disabled={advancingVisitId === stop.visitId}
                             onClick={() => handleAdvanceStatus(stop.visitId, 'en_route')}
-                            className="inline-flex items-center gap-1 rounded-xl bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500 transition shadow-lg shadow-cyan-600/20"
+                            className={`inline-flex items-center gap-1 rounded-xl bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500 transition shadow-lg shadow-cyan-600/20 ${
+                              advancingVisitId === stop.visitId ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                           >
-                            <Navigation className="h-3.5 w-3.5" /> En Route
+                            <Navigation className="h-3.5 w-3.5" /> {advancingVisitId === stop.visitId ? 'Updating...' : 'En Route'}
                           </button>
                         )}
 
                         {stop.curbsideStatus === 'en_route' && (
                           <button
+                            disabled={advancingVisitId === stop.visitId}
                             onClick={() => handleAdvanceStatus(stop.visitId, 'arrived')}
-                            className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition shadow-lg shadow-emerald-600/20"
+                            className={`inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition shadow-lg shadow-emerald-600/20 ${
+                              advancingVisitId === stop.visitId ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                           >
-                            <MapPin className="h-3.5 w-3.5" /> Arrived Curbside
+                            <MapPin className="h-3.5 w-3.5" /> {advancingVisitId === stop.visitId ? 'Updating...' : 'Arrived Curbside'}
                           </button>
                         )}
 
                         {stop.curbsideStatus === 'arrived' && (
                           <button
+                            disabled={advancingVisitId === stop.visitId}
                             onClick={() => handleAdvanceStatus(stop.visitId, 'curbside_active')}
-                            className="inline-flex items-center gap-1 rounded-xl bg-[#8B95FF] px-3 py-1.5 text-xs font-semibold text-black hover:bg-[#9FA8FF] transition shadow-lg shadow-[#8B95FF]/20"
+                            className={`inline-flex items-center gap-1 rounded-xl bg-[#8B95FF] px-3 py-1.5 text-xs font-semibold text-black hover:bg-[#9FA8FF] transition shadow-lg shadow-[#8B95FF]/20 ${
+                              advancingVisitId === stop.visitId ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                           >
-                            <Zap className="h-3.5 w-3.5" /> Start Curbside Groom
+                            <Zap className="h-3.5 w-3.5" /> {advancingVisitId === stop.visitId ? 'Updating...' : 'Start Curbside Groom'}
                           </button>
                         )}
 
                         {stop.curbsideStatus === 'curbside_active' && (
                           <button
+                            disabled={advancingVisitId === stop.visitId}
                             onClick={() => handleAdvanceStatus(stop.visitId, 'completed')}
-                            className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition shadow-lg shadow-emerald-600/20"
+                            className={`inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition shadow-lg shadow-emerald-600/20 ${
+                              advancingVisitId === stop.visitId ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                           >
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Complete Stop
+                            <CheckCircle2 className="h-3.5 w-3.5" /> {advancingVisitId === stop.visitId ? 'Updating...' : 'Complete Stop'}
                           </button>
                         )}
 
@@ -482,8 +515,10 @@ export default function LiveFleetPage() {
                   Telemetry Ping: {activeVan.stationName}
                 </h3>
                 <button
+                  type="button"
+                  aria-label="Close telemetry dialog"
                   onClick={() => setTelemetryModalOpen(false)}
-                  className="text-xs text-zinc-400 hover:text-white"
+                  className="text-xs text-zinc-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-periwinkle-500"
                 >
                   ✕
                 </button>
@@ -491,8 +526,9 @@ export default function LiveFleetPage() {
 
               <form onSubmit={handleUpdateTelemetry} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-zinc-400 mb-1">Battery Level (%)</label>
+                  <label htmlFor="telemetry-battery" className="block text-zinc-400 mb-1">Battery Level (%)</label>
                   <input
+                    id="telemetry-battery"
                     type="number"
                     min="0"
                     max="100"
@@ -505,8 +541,9 @@ export default function LiveFleetPage() {
                 </div>
 
                 <div>
-                  <label className="block text-zinc-400 mb-1">Fresh Water Tank (%)</label>
+                  <label htmlFor="telemetry-water-tank" className="block text-zinc-400 mb-1">Fresh Water Tank (%)</label>
                   <input
+                    id="telemetry-water-tank"
                     type="number"
                     min="0"
                     max="100"
@@ -519,8 +556,9 @@ export default function LiveFleetPage() {
                 </div>
 
                 <div>
-                  <label className="block text-zinc-400 mb-1">Gray Water Tank (%)</label>
+                  <label htmlFor="telemetry-gray-water" className="block text-zinc-400 mb-1">Gray Water Tank (%)</label>
                   <input
+                    id="telemetry-gray-water"
                     type="number"
                     min="0"
                     max="100"
@@ -533,8 +571,9 @@ export default function LiveFleetPage() {
                 </div>
 
                 <div>
-                  <label className="block text-zinc-400 mb-1">Odometer Reading (Miles)</label>
+                  <label htmlFor="telemetry-odometer" className="block text-zinc-400 mb-1">Odometer Reading (Miles)</label>
                   <input
+                    id="telemetry-odometer"
                     type="number"
                     value={telemetryForm.odometer_miles}
                     onChange={(e) =>
@@ -554,9 +593,12 @@ export default function LiveFleetPage() {
                   </button>
                   <button
                     type="submit"
-                    className="rounded-xl bg-[#8B95FF] px-4 py-1.5 font-semibold text-black hover:bg-[#9FA8FF]"
+                    disabled={isSubmittingTelemetry}
+                    className={`rounded-xl bg-[#8B95FF] px-4 py-1.5 font-semibold text-black hover:bg-[#9FA8FF] ${
+                      isSubmittingTelemetry ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
                   >
-                    Broadcast Ping
+                    {isSubmittingTelemetry ? 'Broadcasting...' : 'Broadcast Ping'}
                   </button>
                 </div>
               </form>

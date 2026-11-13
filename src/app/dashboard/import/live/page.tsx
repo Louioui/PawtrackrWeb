@@ -311,7 +311,7 @@ export default function LiveDataPortabilityPage() {
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium text-zinc-300">
+                  <label htmlFor="import-csv-content" className="text-xs font-medium text-zinc-300">
                     CSV Content ({rawCsv.split('\n').filter((l) => l.trim()).length} lines)
                   </label>
                   <div className="flex gap-2">
@@ -331,6 +331,7 @@ export default function LiveDataPortabilityPage() {
                   </div>
                 </div>
                 <textarea
+                  id="import-csv-content"
                   rows={6}
                   value={rawCsv}
                   onChange={(e) => {
@@ -587,10 +588,11 @@ export default function LiveDataPortabilityPage() {
 
             <div className="max-w-xl space-y-4 text-xs">
               <div>
-                <label className="block text-zinc-300 font-medium mb-1">
+                <label htmlFor="target-sibling-salon-uuid" className="block text-zinc-300 font-medium mb-1">
                   Target Sibling Salon UUID (Must share owner identity)
                 </label>
                 <input
+                  id="target-sibling-salon-uuid"
                   type="text"
                   value={copyForm.targetBusinessId}
                   onChange={(e) => setCopyForm({ ...copyForm, targetBusinessId: e.target.value })}

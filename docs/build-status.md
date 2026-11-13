@@ -46,6 +46,29 @@ This document maps the user's broad build request and the supplied architecture 
 
 - Migration `0016_enforce_visit_availability.sql` moves salon operating hours and groomer shift rules into a `BEFORE INSERT OR UPDATE` trigger on `public.visits`, so a staff token writing through the Data API can no longer skip the checks in `POST /api/reservations`. It checks active reservations only, rechecks an update only when it moves or reactivates the visit, and rejects when the time zone or hours are unusable. It raises `PW001` (hours), `PW002` (shift or time off) and `PW003` (settings), which the reservation API returns as HTTP 422. `npm run test:migrations` applies all twenty-two migrations to local PostgreSQL 14 and covers hours in UTC and `America/Los_Angeles`, shift containment, time off, completed shifts, a skipped daylight-saving shift start, status progression after hours are narrowed, reschedule and reactivation, unusable settings, and a direct write under the `authenticated` role. On hosted PostgreSQL 17.11, a real anonymous booking inserted through this trigger, removed every overlapping start from availability, and rejected a duplicate slot with `PW022`. Known limits: existing rows are not revalidated, and adding time off or narrowing hours does not flag reservations already booked.
 
+## Verification on November 13, 2026
+
+- **100% Green CI/CD on `Master`:** Workflow `#47` (run `43433939705`) passed completely:
+  - `verify-and-build`: PASS (1m2s) — `tsc --noEmit`, Next.js production build, environment check.
+  - `migration-integration`: PASS (40s) — All 24 migrations plus cross-tenant, double-booking race, and daylight-saving scenario suites.
+  - `browser-integration`: PASS (2m2s) — 48 headless Chrome Playwright end-to-end integration tests.
+- **Pull Requests #1 through #8 Merged:**
+  - PR #1: Enforce visit availability and salon time-zone projection (`0015`–`0016`).
+  - PR #2: Release hardening, subscription billing, and staff sign-in (`0024_subscription_billing.sql`).
+  - PR #3: CI/CD alignment on `Master` branch.
+  - PR #4: Demo booking fixes and realtime visit updates (`0023_publish_visits_to_realtime.sql`).
+  - PR #5: Demo hardening, route guards, accessibility contrast fixes, and founder admin production 404 guard.
+  - PR #6: Concurrency race condition tests (GiST exclusion locks) and daylight-saving local-hour boundary tests.
+  - PR #7: Absolute integer-cent cash drawer reconciliation and split-payment isolation tests.
+  - PR #8: Cross-tenant data isolation and foreign-key hijacking protection tests.
+- **CodeRabbit Review Resolutions:**
+  - All CodeRabbit review comments and requests on PR #5, #6, #7, and #8 were fully addressed, verified, and resolved prior to merge.
+- **Test Suite Metrics:**
+  - `npm run test:migrations`: 24 migrations applied cleanly + full tenant isolation and race fixtures passed.
+  - `npm run typecheck`: 0 TypeScript errors.
+  - `npm test`: 114/114 passing unit and scenario assertions.
+  - `npm run test:e2e`: 48/48 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
+
 ## Production flows added on November 9–10, 2026
 
 These pieces are verified in temporary PostgreSQL 14, unit tests, and built-server browser checks. **Migrations 0016–0022 are installed on hosted PostgreSQL 17.11, and public booking is verified through the real anonymous Data API. Owner onboarding still needs a real hosted Auth fixture, and Stripe has not been exercised.**

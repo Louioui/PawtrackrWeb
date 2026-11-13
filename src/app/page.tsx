@@ -558,17 +558,18 @@ export default function LandingPage() {
         aria-label="Pawtrackr connected grooming workflow overview"
         className="relative overflow-hidden rounded-3xl border border-white/[0.09] bg-gradient-to-b from-obsidian-800/95 via-obsidian-900 to-obsidian-900 p-6 sm:p-10 lg:p-14 shadow-glass"
       >
-        <div className="pointer-events-none absolute -top-36 left-1/2 h-72 w-[42rem] -translate-x-1/2 rounded-full bg-periwinkle-500/12 blur-3xl" />
+        <div className="pointer-events-none absolute -top-36 left-1/2 h-72 w-[42rem] -translate-x-1/2 rounded-full bg-periwinkle-500/12 blur-3xl animate-drift" />
+        <div className="pointer-events-none absolute -right-20 top-40 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl animate-drift [animation-duration:18s]" />
 
         <div className="relative z-10 grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-center">
           {/* Left Column: Positioning & Clear Action Hierarchy */}
           <div className="lg:col-span-6">
-            <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-periwinkle-500/35 bg-periwinkle-500/10 px-3.5 py-1.5 text-xs font-semibold text-periwinkle-300">
+            <div className="animate-rise-in inline-flex flex-wrap items-center gap-2 rounded-full border border-periwinkle-500/35 bg-periwinkle-500/10 px-3.5 py-1.5 text-xs font-semibold text-periwinkle-300">
               <Sparkles className="h-3.5 w-3.5 text-periwinkle-400" />
               <span>Interactive product preview • Simulated salon workflow</span>
             </div>
 
-            <h1 className="mt-5 text-3xl font-extrabold tracking-tight text-white sm:text-5xl leading-[1.12]">
+            <h1 className="animate-rise-in [animation-delay:120ms] mt-5 text-3xl font-extrabold tracking-tight text-white sm:text-5xl leading-[1.12]">
               The Trusted Operating System for{' '}
               <span className="bg-gradient-to-r from-periwinkle-300 via-periwinkle-400 to-emerald-400 bg-clip-text text-transparent">
                 Modern Pet-Care Businesses.
@@ -583,7 +584,7 @@ export default function LandingPage() {
             </p>
 
             {/* Primary & Secondary Calls to Action */}
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="animate-rise-in [animation-delay:240ms] mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <Link
                 href="/dashboard"
                 className="inline-flex items-center justify-center gap-2.5 rounded-2xl bg-periwinkle-500 px-6 py-3.5 text-sm font-bold text-obsidian-950 shadow-periwinkle-glow transition motion-reduce:transition-none hover:bg-periwinkle-400"
@@ -1009,7 +1010,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="One appointment lifecycle from request to follow-up"
-        className="mt-16 rounded-3xl border border-white/[0.08] bg-obsidian-800/75 p-6 sm:p-8 shadow-glass"
+        className="reveal-on-scroll mt-16 rounded-3xl border border-white/[0.08] bg-obsidian-800/75 p-6 sm:p-8 shadow-glass"
       >
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>
@@ -1116,7 +1117,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="Availability intelligence demonstration"
-        className="mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center"
+        className="reveal-on-scroll mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center"
       >
         <div className="lg:col-span-5 space-y-4">
           <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">
@@ -1260,7 +1261,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="Three connected grooming workflows and pet care context"
-        className="mt-16"
+        className="reveal-on-scroll mt-16"
       >
         <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
           <div>
@@ -1442,7 +1443,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="Operational trust questions and data confidence inspector"
-        className="mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12"
+        className="reveal-on-scroll mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12"
       >
         {/* Left 7 Columns: Three Interactive Operational Questions */}
         <div className="rounded-3xl border border-white/[0.08] bg-obsidian-800/80 p-6 sm:p-8 shadow-glass lg:col-span-7">
@@ -1607,7 +1608,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="Operational consolidation and platform roadmap"
-        className="mt-16 space-y-8"
+        className="reveal-on-scroll mt-16 space-y-8"
       >
         {/* Fragmented Tools vs. Connected Loop */}
         <div className="rounded-3xl border border-white/[0.08] bg-obsidian-800/75 p-6 sm:p-8 shadow-glass">
@@ -1778,7 +1779,7 @@ export default function LandingPage() {
       <section
         id="launch"
         aria-label="Explore Pawtrackr workspaces and demo plan preview"
-        className="mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12"
+        className="reveal-on-scroll mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12"
       >
         {/* Left 7 Columns: Guided Role Entry Points & Proposed Plans */}
         <div className="space-y-6 lg:col-span-7">

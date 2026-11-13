@@ -56,9 +56,19 @@ const config: Config = {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.68' },
         },
+        'rise-in': {
+          from: { opacity: '0', transform: 'translateY(22px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        drift: {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '50%': { transform: 'translate(40px, -30px)' },
+        },
       },
       animation: {
         'pulse-subtle': 'pulse-subtle 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'rise-in': 'rise-in 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both',
+        drift: 'drift 14s ease-in-out infinite',
       },
     },
   },

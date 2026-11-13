@@ -13,6 +13,9 @@ export default defineConfig({
     channel: 'chrome',
     serviceWorkers: 'block',
     trace: 'retain-on-failure',
+    contextOptions: {
+      reducedMotion: 'reduce',
+    },
   },
   webServer: {
     command: `npm run start -- --port ${port}`,

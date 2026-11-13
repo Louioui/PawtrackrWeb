@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { BUSINESSES, BUSINESS_CONFIGS, STAFF_MEMBERS } from '@/lib/mock-tenant-data';
 import { requireLocalDemoApi } from '@/lib/demo-boundary';
+import { containsMarkup } from '@/lib/input-safety';
 import { readServerLedger, writeServerLedger } from '@/lib/server-db';
 import { fromCents, toCents } from '@/lib/pos-math';
 import { addMinutesToLabeledSlot, isStaffSlotAvailable } from '@/lib/booking-availability';
@@ -77,6 +78,11 @@ export async function POST(req: NextRequest) {
 
     // The salon itself is unknown to this service: its setup has not synced.
     // Distinct from bad booking details, so the page can say what went wrong.
+    const markupInName = [clientName, petName, secondPetName].some((value) => containsMarkup(value));
+    if (markupInName) {
+      return NextResponse.json({ error: 'Names cannot contain < or > characters.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+    }
+
     if (!business || !config) {
       return NextResponse.json({ error: 'This salon is not ready for online booking yet.', code: 'salon_setup_pending' }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
     }

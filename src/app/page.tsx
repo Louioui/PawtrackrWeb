@@ -1010,7 +1010,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="One appointment lifecycle from request to follow-up"
-        className="reveal-on-scroll mt-16rounded-3xl border border-white/[0.08] bg-obsidian-800/75 p-6 sm:p-8 shadow-glass"
+        className="reveal-on-scroll mt-16 rounded-3xl border border-white/[0.08] bg-obsidian-800/75 p-6 sm:p-8 shadow-glass"
       >
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>
@@ -1117,7 +1117,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="Availability intelligence demonstration"
-        className="reveal-on-scroll mt-16grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center"
+        className="reveal-on-scroll mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center"
       >
         <div className="lg:col-span-5 space-y-4">
           <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">
@@ -1443,7 +1443,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="Operational trust questions and data confidence inspector"
-        className="reveal-on-scroll mt-16grid grid-cols-1 gap-8 lg:grid-cols-12"
+        className="reveal-on-scroll mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12"
       >
         {/* Left 7 Columns: Three Interactive Operational Questions */}
         <div className="rounded-3xl border border-white/[0.08] bg-obsidian-800/80 p-6 sm:p-8 shadow-glass lg:col-span-7">
@@ -1608,7 +1608,7 @@ export default function LandingPage() {
       ===================================================================== */}
       <section
         aria-label="Operational consolidation and platform roadmap"
-        className="reveal-on-scroll mt-16space-y-8"
+        className="reveal-on-scroll mt-16 space-y-8"
       >
         {/* Fragmented Tools vs. Connected Loop */}
         <div className="rounded-3xl border border-white/[0.08] bg-obsidian-800/75 p-6 sm:p-8 shadow-glass">
@@ -1639,7 +1639,7 @@ export default function LandingPage() {
                 ].map((frag) => (
                   <span
                     key={frag}
-                    className="rounded-xl border border-white/[0.08] bg-obsidian-800 px-3 py-2 text-zinc-200"
+                    className="rounded-xl border border-white/[0.12] bg-obsidian-900 px-3 py-2 text-white font-medium"
                   >
                     {frag}
                   </span>
@@ -1779,7 +1779,7 @@ export default function LandingPage() {
       <section
         id="launch"
         aria-label="Explore Pawtrackr workspaces and demo plan preview"
-        className="reveal-on-scroll mt-16grid grid-cols-1 gap-8 lg:grid-cols-12"
+        className="reveal-on-scroll mt-16 grid grid-cols-1 gap-8 lg:grid-cols-12"
       >
         {/* Left 7 Columns: Guided Role Entry Points & Proposed Plans */}
         <div className="space-y-6 lg:col-span-7">

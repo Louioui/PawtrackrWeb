@@ -935,12 +935,14 @@ export default function DashboardCommandCenter() {
             >
               Live staff appointments
             </Link>
-            <Link
-              href="/admin"
-              className="inline-flex items-center gap-1 rounded-full border border-white/[0.14] bg-white/[0.06] px-2.5 py-0.5 text-[11px] font-semibold text-zinc-200 hover:text-white"
-            >
-              Founder Super-Admin
-            </Link>
+            {process.env.NODE_ENV !== 'production' && (
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-1 rounded-full border border-white/[0.14] bg-white/[0.06] px-2.5 py-0.5 text-[11px] font-semibold text-zinc-200 hover:text-white"
+              >
+                Founder Super-Admin
+              </Link>
+            )}
           </div>
           <h1 className="mt-2 text-2xl font-extrabold text-white">
             {activeBusiness.name} — Command Center

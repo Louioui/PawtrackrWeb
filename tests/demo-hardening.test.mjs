@@ -11,6 +11,9 @@ test('markup-like names are detected, ordinary names are not', () => {
 test('the founder command panel is hidden in production', () => {
   const layout = readFileSync(new URL('../src/app/admin/layout.tsx', import.meta.url), 'utf8');
   assert.match(layout, /NODE_ENV === 'production'\) notFound\(\)/);
+
+  const dashboard = readFileSync(new URL('../src/app/dashboard/page.tsx', import.meta.url), 'utf8');
+  assert.match(dashboard, /process\.env\.NODE_ENV !== 'production'[\s\S]*?Founder Super-Admin/);
 });
 
 test('the sample salon badge no longer claims tenant isolation', () => {

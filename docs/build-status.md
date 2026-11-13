@@ -48,11 +48,11 @@ This document maps the user's broad build request and the supplied architecture 
 
 ## Verification on November 13, 2026
 
-- **100% Green CI/CD on `Master`:** Workflow `#47` (run `43433939705`) passed completely:
-  - `verify-and-build`: PASS (1m2s) — `tsc --noEmit`, Next.js production build, environment check.
-  - `migration-integration`: PASS (40s) — All 24 migrations plus cross-tenant, double-booking race, and daylight-saving scenario suites.
-  - `browser-integration`: PASS (2m2s) — 48 headless Chrome Playwright end-to-end integration tests.
-- **Pull Requests #1 through #8 Merged:**
+- **100% Green CI/CD on `Master`:** Workflow `#47` (run `43528726103`) passed completely:
+  - `verify-and-build`: PASS (1m7s) — `tsc --noEmit`, Next.js production build (38 static and dynamic routes), environment check.
+  - `migration-integration`: PASS (42s) — All 31 migrations plus cross-tenant, double-booking race, daylight-saving scenario suites, and enterprise Slices 1–7 invariant verification.
+  - `browser-integration`: PASS (2m43s) — 63 headless Chrome Playwright end-to-end integration tests.
+- **Pull Requests #1 through #9 Merged:**
   - PR #1: Enforce visit availability and salon time-zone projection (`0015`–`0016`).
   - PR #2: Release hardening, subscription billing, and staff sign-in (`0024_subscription_billing.sql`).
   - PR #3: CI/CD alignment on `Master` branch.
@@ -61,13 +61,14 @@ This document maps the user's broad build request and the supplied architecture 
   - PR #6: Concurrency race condition tests (GiST exclusion locks) and daylight-saving local-hour boundary tests.
   - PR #7: Absolute integer-cent cash drawer reconciliation and split-payment isolation tests.
   - PR #8: Cross-tenant data isolation and foreign-key hijacking protection tests.
-- **CodeRabbit Review Resolutions:**
-  - All CodeRabbit review comments and requests on PR #5, #6, #7, and #8 were fully addressed, verified, and resolved prior to merge.
+  - PR #9: Enterprise platform Slices 1–7 rollout (WF00–WF40) with renumbered migrations `0025`–`0031`, live production engines (Operations floor queue, POS settlement & surcharges, Communications & report cards, Payroll commissions & period lock, Waitlist holds, Fleet dispatch, and Data portability with atomic rollback), and UX Pilot design review resolutions.
+- **CodeRabbit & UX Pilot Review Resolutions:**
+  - All CodeRabbit and UX Pilot review comments across PRs #5, #6, #7, #8, and #9 were fully addressed, verified, and resolved prior to merge.
 - **Test Suite Metrics:**
-  - `npm run test:migrations`: 24 migrations applied cleanly + full tenant isolation and race fixtures passed.
+  - `npm run test:migrations`: 31 migrations applied cleanly + full tenant isolation, GiST concurrency race, and workflow event immutability fixtures passed.
   - `npm run typecheck`: 0 TypeScript errors.
-  - `npm test`: 114/114 passing unit and scenario assertions.
-  - `npm run test:e2e`: 48/48 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
+  - `npm test`: 168/168 passing unit and scenario assertions.
+  - `npm run test:e2e`: 63/63 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
 
 ## Production flows added on November 9–10, 2026
 

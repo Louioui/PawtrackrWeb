@@ -3,11 +3,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  Activity,
   AlertTriangle,
   Calendar,
   Camera,
   CheckCircle2,
+  Clock,
   CreditCard,
+  Database,
   DollarSign,
   ExternalLink,
   FileSignature,
@@ -17,6 +20,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Truck,
   Users,
   Zap,
 } from 'lucide-react';
@@ -866,6 +870,100 @@ export default function DashboardCommandCenter() {
           </button>
         </div>
       )}
+
+      {/* ENTERPRISE PRODUCTION LIVE WORKSPACES (SLICES 1–7) */}
+      <div className="mb-6 rounded-2xl border border-[#8B95FF]/30 bg-gradient-to-r from-[#181528] via-[#12101D] to-[#181528] p-4 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#8B95FF]/20 text-[#8B95FF] border border-[#8B95FF]/30">
+              <Zap className="h-4 w-4" />
+            </span>
+            <div>
+              <div className="text-xs font-bold text-white tracking-wide uppercase flex items-center gap-2">
+                Production Live Workspaces
+                <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[10px] font-semibold text-emerald-300">
+                  Supabase RLS Active
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Connected database-backed engines with integer-cent reconciliation, GiST exclusions, and multi-tenant isolation.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/dashboard/operations/live"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#8B95FF] px-3.5 py-1.5 text-xs font-bold text-black hover:bg-[#A3ABFF] transition"
+          >
+            Launch Command Floor →
+          </Link>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <Link
+            href="/dashboard/operations/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <Activity className="h-3.5 w-3.5 text-[#8B95FF]" />
+            Operations Floor (WF01)
+          </Link>
+          <Link
+            href="/dashboard/pos/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <CreditCard className="h-3.5 w-3.5 text-emerald-400" />
+            POS Register (WF06)
+          </Link>
+          <Link
+            href="/dashboard/payroll/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <DollarSign className="h-3.5 w-3.5 text-amber-400" />
+            Staff Payroll (WF08/28)
+          </Link>
+          <Link
+            href="/dashboard/waitlist/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <Clock className="h-3.5 w-3.5 text-purple-400" />
+            Smart Waitlist (WF15)
+          </Link>
+          <Link
+            href="/dashboard/fleet/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <Truck className="h-3.5 w-3.5 text-cyan-400" />
+            Mobile Fleet (WF22)
+          </Link>
+          <Link
+            href="/dashboard/import/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <Database className="h-3.5 w-3.5 text-rose-400" />
+            Data Portability (WF30/33)
+          </Link>
+          <Link
+            href="/dashboard/settings/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <Settings className="h-3.5 w-3.5 text-zinc-400" />
+            Catalog & Shifts (WF21/18)
+          </Link>
+          <Link
+            href="/dashboard/appointments/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <Calendar className="h-3.5 w-3.5 text-emerald-400" />
+            Live Appointments
+          </Link>
+          <Link
+            href="/dashboard/analytics/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#141220] px-3 py-1.5 font-medium text-zinc-200 hover:border-[#8B95FF]/50 hover:text-white transition"
+          >
+            <ShieldCheck className="h-3.5 w-3.5 text-periwinkle-400" />
+            Recorded Analytics
+          </Link>
+        </div>
+      </div>
 
       {/* TOP COMMAND HEADER + MULTI-TENANT RLS SWITCHER */}
       <div className="flex flex-col justify-between gap-4 rounded-3xl border border-white/[0.08] bg-obsidian-800/90 p-5 lg:flex-row lg:items-center shadow-glass">

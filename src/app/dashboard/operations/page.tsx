@@ -248,6 +248,32 @@ export default function EnterpriseOperationsSuitePage() {
         </div>
       </div>
 
+      {/* Live Operations Floor Banner */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-periwinkle-500/30 bg-gradient-to-r from-periwinkle-500/10 via-obsidian-900 to-obsidian-900 p-4 shadow-glass">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-periwinkle-500/20 text-periwinkle-300 border border-periwinkle-500/30">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="text-sm font-bold text-white flex items-center gap-2">
+              Live Operations Command Floor
+              <span className="rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                Database RLS Active
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400">
+              Grooming stages (WF01), Extra Work surcharges (WF11), Safety stops (WF05), and Day Closeout (WF08).
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/dashboard/operations/live"
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-periwinkle-500 px-4 py-2 text-xs font-bold text-obsidian-950 hover:bg-periwinkle-400 transition"
+        >
+          Open Live Operations Floor →
+        </Link>
+      </div>
+
       {toastMessage && (
         <div className="mb-6 flex items-center justify-between rounded-2xl border border-emerald-500/45 bg-emerald-500/15 px-5 py-3.5 text-xs font-medium text-emerald-200 shadow-emerald-glow">
           <span className="inline-flex items-center gap-2">

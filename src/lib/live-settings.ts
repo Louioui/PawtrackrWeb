@@ -31,6 +31,24 @@ export type LiveSettingsGroomer = {
   is_active: boolean;
 };
 
+export type LiveSettingsStation = {
+  id: string;
+  name: string;
+  station_type: 'grooming_table' | 'bathing_tub' | 'drying_station' | 'van_bay' | 'holding_suite';
+  is_active: boolean;
+  notes?: string | null;
+};
+
+export type LiveSettingsWeeklyShift = {
+  id: string;
+  staff_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  station_id: string | null;
+  is_active: boolean;
+};
+
 export type LiveSalonSettings = {
   source: 'supabase_business_settings';
   business_id: string;
@@ -50,6 +68,14 @@ export type LiveSalonSettings = {
   packages: LiveSettingsPackage[];
   addons: LiveSettingsAddon[];
   groomers: LiveSettingsGroomer[];
+  operating_model?: 'salon' | 'mobile_van' | 'hybrid';
+  booking_status?: 'draft' | 'published' | 'paused';
+  trial_ends_at?: string | null;
+  strict_shift_station_mode?: boolean;
+  weekly_hours?: Record<string, { open: string; close: string; is_closed: boolean }>;
+  stations?: LiveSettingsStation[];
+  weekly_shifts?: LiveSettingsWeeklyShift[];
+  policies?: Record<string, unknown>;
 };
 
 export type ValidatedSalonSettingsUpdate = {
@@ -62,6 +88,11 @@ export type ValidatedSalonSettingsUpdate = {
   };
   packages: LiveSettingsPackage[];
   addons: LiveSettingsAddon[];
+  operating_model?: 'salon' | 'mobile_van' | 'hybrid';
+  booking_status?: 'draft' | 'published' | 'paused';
+  strict_shift_station_mode?: boolean;
+  weekly_hours?: Record<string, { open: string; close: string; is_closed: boolean }>;
+  policies?: Record<string, unknown>;
 };
 
 export type ValidatedGroomerIntake = {
@@ -125,6 +156,87 @@ export function validateAddonsList(input: unknown): LiveSettingsAddon[] | null {
   return result;
 }
 
+const stationTypes = new Set(['grooming_table', 'bathing_tub', 'drying_station', 'van_bay', 'holding_suite']);
+const operatingModels = new Set(['salon', 'mobile_van', 'hybrid']);
+const bookingStatuses = new Set(['draft', 'published', 'paused']);
+
+export function validateStationsList(input: unknown): LiveSettingsStation[] | null {
+  if (!Array.isArray(input) || input.length > 100) return null;
+  const seen = new Set<string>();
+  const result: LiveSettingsStation[] = [];
+  for (const raw of input) {
+    if (!object(raw) || typeof raw.id !== 'string' || !uuid.test(raw.id) || seen.has(raw.id) ||
+        !label(raw.name, 120) || typeof raw.station_type !== 'string' || !stationTypes.has(raw.station_type) ||
+        typeof raw.is_active !== 'boolean') {
+      return null;
+    }
+    seen.add(raw.id);
+    const notes = typeof raw.notes === 'string' && raw.notes.trim().length > 0
+      ? raw.notes.trim().slice(0, 300)
+      : null;
+    result.push({
+      id: raw.id,
+      name: raw.name.trim(),
+      station_type: raw.station_type as LiveSettingsStation['station_type'],
+      is_active: raw.is_active,
+      notes,
+    });
+  }
+  return result;
+}
+
+export function validateWeeklyShiftsList(input: unknown): LiveSettingsWeeklyShift[] | null {
+  if (!Array.isArray(input) || input.length > 200) return null;
+  const seen = new Set<string>();
+  const result: LiveSettingsWeeklyShift[] = [];
+  for (const raw of input) {
+    if (!object(raw) || typeof raw.id !== 'string' || !uuid.test(raw.id) || seen.has(raw.id) ||
+        typeof raw.staff_id !== 'string' || !uuid.test(raw.staff_id) ||
+        typeof raw.day_of_week !== 'number' || !Number.isInteger(raw.day_of_week) || raw.day_of_week < 0 || raw.day_of_week > 6 ||
+        typeof raw.start_time !== 'string' || typeof raw.end_time !== 'string' ||
+        typeof raw.is_active !== 'boolean') {
+      return null;
+    }
+    const startMin = parseClockMinute(raw.start_time.slice(0, 5));
+    const endMin = parseClockMinute(raw.end_time.slice(0, 5));
+    if (startMin === null || endMin === null || startMin >= endMin) return null;
+    if (raw.station_id !== null && raw.station_id !== undefined && (typeof raw.station_id !== 'string' || !uuid.test(raw.station_id))) {
+      return null;
+    }
+    seen.add(raw.id);
+    result.push({
+      id: raw.id,
+      staff_id: raw.staff_id,
+      day_of_week: raw.day_of_week,
+      start_time: raw.start_time.slice(0, 5),
+      end_time: raw.end_time.slice(0, 5),
+      station_id: typeof raw.station_id === 'string' ? raw.station_id : null,
+      is_active: raw.is_active,
+    });
+  }
+  return result;
+}
+
+export function validateWeeklyHours(input: unknown): Record<string, { open: string; close: string; is_closed: boolean }> | null {
+  if (!object(input)) return null;
+  const days = ['0', '1', '2', '3', '4', '5', '6'];
+  const result: Record<string, { open: string; close: string; is_closed: boolean }> = {};
+  for (const day of days) {
+    const entry = input[day];
+    if (!object(entry) || typeof entry.is_closed !== 'boolean') return null;
+    const isClosed = entry.is_closed;
+    const open = typeof entry.open === 'string' ? entry.open.slice(0, 5) : '08:00';
+    const close = typeof entry.close === 'string' ? entry.close.slice(0, 5) : '18:00';
+    const openMin = parseClockMinute(open);
+    const closeMin = parseClockMinute(close);
+    if (!isClosed && (openMin === null || closeMin === null || openMin >= closeMin)) {
+      return null;
+    }
+    result[day] = { open, close, is_closed: isClosed };
+  }
+  return result;
+}
+
 export function validateSalonSettingsUpdate(input: unknown): ValidatedSalonSettingsUpdate | null {
   if (!object(input)) return null;
   const rawTax = typeof input.tax_rate === 'string' ? Number(input.tax_rate) : input.tax_rate;
@@ -148,6 +260,37 @@ export function validateSalonSettingsUpdate(input: unknown): ValidatedSalonSetti
   const addons = validateAddonsList(input.addons);
   if (!packages || !addons) return null;
 
+  let operating_model: 'salon' | 'mobile_van' | 'hybrid' | undefined = undefined;
+  if (input.operating_model !== undefined) {
+    if (typeof input.operating_model !== 'string' || !operatingModels.has(input.operating_model)) return null;
+    operating_model = input.operating_model as 'salon' | 'mobile_van' | 'hybrid';
+  }
+
+  let booking_status: 'draft' | 'published' | 'paused' | undefined = undefined;
+  if (input.booking_status !== undefined) {
+    if (typeof input.booking_status !== 'string' || !bookingStatuses.has(input.booking_status)) return null;
+    booking_status = input.booking_status as 'draft' | 'published' | 'paused';
+  }
+
+  let strict_shift_station_mode: boolean | undefined = undefined;
+  if (input.strict_shift_station_mode !== undefined) {
+    if (typeof input.strict_shift_station_mode !== 'boolean') return null;
+    strict_shift_station_mode = input.strict_shift_station_mode;
+  }
+
+  let weekly_hours: Record<string, { open: string; close: string; is_closed: boolean }> | undefined = undefined;
+  if (input.weekly_hours !== undefined) {
+    const validatedWeekly = validateWeeklyHours(input.weekly_hours);
+    if (!validatedWeekly) return null;
+    weekly_hours = validatedWeekly;
+  }
+
+  let policies: Record<string, unknown> | undefined = undefined;
+  if (input.policies !== undefined) {
+    if (!object(input.policies)) return null;
+    policies = input.policies;
+  }
+
   return {
     tax_rate: Number(rawTax.toFixed(2)),
     booking_buffer_mins: rawBuffer,
@@ -158,6 +301,11 @@ export function validateSalonSettingsUpdate(input: unknown): ValidatedSalonSetti
     },
     packages,
     addons,
+    ...(operating_model ? { operating_model } : {}),
+    ...(booking_status ? { booking_status } : {}),
+    ...(strict_shift_station_mode !== undefined ? { strict_shift_station_mode } : {}),
+    ...(weekly_hours ? { weekly_hours } : {}),
+    ...(policies ? { policies } : {}),
   };
 }
 
@@ -214,6 +362,42 @@ export function normalizeLiveSalonSettings(input: unknown): LiveSalonSettings {
   });
   groomers.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 
+  let operating_model: 'salon' | 'mobile_van' | 'hybrid' | undefined = undefined;
+  if (input.operating_model !== undefined) {
+    if (typeof input.operating_model === 'string' && operatingModels.has(input.operating_model)) {
+      operating_model = input.operating_model as 'salon' | 'mobile_van' | 'hybrid';
+    }
+  }
+
+  let booking_status: 'draft' | 'published' | 'paused' | undefined = undefined;
+  if (input.booking_status !== undefined) {
+    if (typeof input.booking_status === 'string' && bookingStatuses.has(input.booking_status)) {
+      booking_status = input.booking_status as 'draft' | 'published' | 'paused';
+    }
+  }
+
+  const trial_ends_at = typeof input.trial_ends_at === 'string' && Number.isFinite(Date.parse(input.trial_ends_at))
+    ? input.trial_ends_at
+    : null;
+
+  const strict_shift_station_mode = typeof input.strict_shift_station_mode === 'boolean'
+    ? input.strict_shift_station_mode
+    : undefined;
+
+  const weekly_hours = input.weekly_hours !== undefined
+    ? validateWeeklyHours(input.weekly_hours) ?? undefined
+    : undefined;
+
+  const stations = input.stations !== undefined
+    ? validateStationsList(input.stations) ?? undefined
+    : undefined;
+
+  const weekly_shifts = input.weekly_shifts !== undefined
+    ? validateWeeklyShiftsList(input.weekly_shifts) ?? undefined
+    : undefined;
+
+  const policies = object(input.policies) ? input.policies : undefined;
+
   return {
     source: 'supabase_business_settings',
     business_id: input.business_id,
@@ -230,5 +414,13 @@ export function normalizeLiveSalonSettings(input: unknown): LiveSalonSettings {
     packages: validatedConfig.packages,
     addons: validatedConfig.addons,
     groomers,
+    ...(operating_model ? { operating_model } : {}),
+    ...(booking_status ? { booking_status } : {}),
+    ...(trial_ends_at ? { trial_ends_at } : {}),
+    ...(strict_shift_station_mode !== undefined ? { strict_shift_station_mode } : {}),
+    ...(weekly_hours ? { weekly_hours } : {}),
+    ...(stations ? { stations } : {}),
+    ...(weekly_shifts ? { weekly_shifts } : {}),
+    ...(policies ? { policies } : {}),
   };
 }

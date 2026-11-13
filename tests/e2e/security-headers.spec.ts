@@ -35,6 +35,11 @@ test('production pages carry the complete browser security policy', async ({ req
   assertSecurityHeaders(response.headers());
 });
 
+test('the founder command panel returns 404 in a production build', async ({ request }) => {
+  const response = await request.get('/admin');
+  expect(response.status()).toBe(404);
+});
+
 test('protected API failures retain the same security policy and no-store boundary', async ({ request }) => {
   const response = await request.get('/api/reservations?date=2026-11-10');
   expect([401, 503]).toContain(response.status());

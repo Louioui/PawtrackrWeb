@@ -848,4 +848,149 @@ DO $$ BEGIN
 END $$;
 SQL
 printf 'Cross-tenant access scenarios passed.\n'
+# Scenario: Friday double-booking. Two front-desk sessions book the same
+# groomer for the same time at the same moment. The database must accept
+# exactly one. Run as two real concurrent connections, not one transaction.
+# ---------------------------------------------------------------------------
+psql -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO public.businesses (id, name, slug, owner_email) VALUES
+  ('33333333-3333-4333-8333-333333333333', 'Race Salon', 'race-salon', 'race@example.test');
+INSERT INTO public.business_configs (business_id, custom_settings) VALUES
+  ('33333333-3333-4333-8333-333333333333',
+   '{"time_zone": "America/Los_Angeles", "operating_hours": {"open": "08:00", "close": "18:00"}}');
+INSERT INTO public.clients (id, business_id, name, phone) VALUES
+  ('33333333-cccc-4ccc-8ccc-333333333333', '33333333-3333-4333-8333-333333333333', 'Race Client', '5');
+INSERT INTO public.pets (id, business_id, client_id, name, breed) VALUES
+  ('33333333-dddd-4ddd-8ddd-333333333333', '33333333-3333-4333-8333-333333333333',
+   '33333333-cccc-4ccc-8ccc-333333333333', 'Race Pet', 'Poodle');
+INSERT INTO public.staff_members (id, business_id, name, role) VALUES
+  ('33333333-eeee-4eee-8eee-333333333333', '33333333-3333-4333-8333-333333333333', 'Alex', 'groomer');
+SQL
+
+race_insert() {
+  # $1 = UTC start time, $2 = label
+  printf "INSERT INTO public.visits (business_id, client_id, pet_id, staff_id, service_package,
+    total_amount, scheduled_time, duration_minutes) VALUES ('33333333-3333-4333-8333-333333333333',
+    '33333333-cccc-4ccc-8ccc-333333333333', '33333333-dddd-4ddd-8ddd-333333333333',
+    '33333333-eeee-4eee-8eee-333333333333', '%s', 60, '%s', 30);" "$2" "$1"
+}
+
+race_count() {
+  psql -tA -c "SELECT count(*) FROM public.visits WHERE staff_id = '33333333-eeee-4eee-8eee-333333333333'
+    AND scheduled_time = '$1' AND status = 'booked'"
+}
+
+# Wait until a session reaches a given wait state, so the race does not
+# depend on timing guesses. $1 = application name, $2 = SQL condition.
+wait_for_session() {
+  for _ in $(seq 1 100); do
+    if [ "$(psql -tA -c "SELECT count(*) FROM pg_stat_activity WHERE application_name = '$1' AND $2")" = '1' ]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  printf 'Session %s never reached: %s\n' "$1" "$2" >&2
+  exit 1
+}
+
+# Emits SQL that keeps the first session's transaction open until the named
+# second session is seen blocked on a lock, so the first can never finish
+# early on a slow runner. Gives up loudly after 60 seconds.
+race_hold() {
+  printf "\nDO \$race_hold\$ BEGIN
+  FOR i IN 1..600 LOOP
+    PERFORM pg_stat_clear_snapshot();
+    IF EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = '%s' AND wait_event_type = 'Lock') THEN
+      RETURN;
+    END IF;
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+  RAISE EXCEPTION 'The second booking session never blocked on the first';
+END \$race_hold\$;\n" "$1"
+}
+
+# Race 1: both sessions commit. A inserts and holds its booking uncommitted;
+# B starts only once A's row is in place, and is shown to be blocked on it.
+slot_one='2030-03-15 21:00:00+00'   # Friday 2:00 PM Pacific
+{ printf 'BEGIN;\n'; race_insert "$slot_one" 'Front desk A'; race_hold race_b; printf 'COMMIT;\n'; } \
+  | PGAPPNAME=race_a psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_a.log" 2>&1 &
+race_a=$!
+wait_for_session race_a "query LIKE '%race_hold%'"
+race_insert "$slot_one" 'Front desk B' \
+  | PGAPPNAME=race_b psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_b.log" 2>&1 &
+race_b=$!
+# No shell-side wait here: the first session's race_hold already proves this
+# one blocked, and commits the moment it does, so a second poll could miss it.
+set +e
+wait "$race_a"; race_a_status=$?
+wait "$race_b"; race_b_status=$?
+set -e
+if [ "$race_a_status" -ne 0 ] || [ "$race_b_status" -eq 0 ] \
+   || ! grep -q 'exclusion constraint' "$temp_dir/race_b.log" \
+   || [ "$(race_count "$slot_one")" != '1' ]; then
+  printf 'Double-booking race was not resolved to exactly one booking.\n' >&2
+  cat "$temp_dir/race_a.log" "$temp_dir/race_b.log" >&2
+  exit 1
+fi
+
+# Race 2: A abandons its booking. B, blocked on it, must then get the slot.
+slot_two='2030-03-15 23:00:00+00'   # Friday 4:00 PM Pacific
+{ printf 'BEGIN;\n'; race_insert "$slot_two" 'Abandoned'; race_hold race_d; printf 'ROLLBACK;\n'; } \
+  | PGAPPNAME=race_c psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_c.log" 2>&1 &
+race_c=$!
+wait_for_session race_c "query LIKE '%race_hold%'"
+race_insert "$slot_two" 'Takes the slot' \
+  | PGAPPNAME=race_d psql -v ON_ERROR_STOP=1 -q >"$temp_dir/race_d.log" 2>&1 &
+race_d=$!
+# No shell-side wait here: the first session's race_hold already proves this
+# one blocked, and commits the moment it does, so a second poll could miss it.
+set +e
+wait "$race_c"; race_c_status=$?
+wait "$race_d"; race_d_status=$?
+set -e
+if [ "$race_c_status" -ne 0 ] || [ "$race_d_status" -ne 0 ] \
+   || [ "$(race_count "$slot_two")" != '1' ] \
+   || [ "$(psql -tA -c "SELECT service_package FROM public.visits WHERE scheduled_time = '$slot_two'")" != 'Takes the slot' ]; then
+  printf 'A booking waiting on an abandoned one did not get the slot.\n' >&2
+  cat "$temp_dir/race_c.log" "$temp_dir/race_d.log" >&2
+  exit 1
+fi
+
+# Not covered here: a public online booking (public_book_appointment, which
+# picks a groomer itself) racing a staff booking. That path needs its own
+# fixture and is the next increment.
+
+# Scenario: opening hours are local time, including the day the clocks
+# change. 2030-03-10 is the US spring-forward Sunday.
+psql -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$
+DECLARE
+  start_at timestamptz;
+  expect_ok boolean;
+  accepted boolean;
+BEGIN
+  FOR start_at, expect_ok IN VALUES
+    ('2030-03-09 15:30:00+00'::timestamptz, false),  -- Sat 7:30 AM PST, before opening
+    ('2030-03-09 16:00:00+00'::timestamptz, true),   -- Sat 8:00 AM PST
+    ('2030-03-11 14:30:00+00'::timestamptz, false),  -- Mon 7:30 AM PDT, before opening
+    ('2030-03-11 15:00:00+00'::timestamptz, true),   -- Mon 8:00 AM PDT, one hour earlier in UTC
+    ('2030-03-11 00:45:00+00'::timestamptz, false)   -- Sun 5:45 PM PDT, runs past closing
+  LOOP
+    BEGIN
+      INSERT INTO public.visits (business_id, client_id, pet_id, staff_id, service_package,
+        total_amount, scheduled_time, duration_minutes, booking_buffer_minutes)
+      VALUES ('33333333-3333-4333-8333-333333333333', '33333333-cccc-4ccc-8ccc-333333333333',
+        '33333333-dddd-4ddd-8ddd-333333333333', '33333333-eeee-4eee-8eee-333333333333',
+        'DST check', 60, start_at, 30, 0);
+      accepted := true;
+    EXCEPTION WHEN SQLSTATE 'PW001' THEN
+      accepted := false;
+    END;
+    IF accepted IS DISTINCT FROM expect_ok THEN
+      RAISE EXCEPTION 'Opening-hours check was wrong at % (expected accepted=%)', start_at, expect_ok;
+    END IF;
+  END LOOP;
+END $$;
+SQL
+printf 'Double-booking race and daylight-saving hours checks passed.\n'
 printf 'Migration execution and basic tenant/RPC checks passed.\n'

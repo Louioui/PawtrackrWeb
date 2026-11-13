@@ -1638,7 +1638,7 @@ export default function LandingPage() {
                 ].map((frag) => (
                   <span
                     key={frag}
-                    className="rounded-xl border border-white/[0.08] bg-obsidian-800 px-3 py-2 text-zinc-200"
+                    className="rounded-xl border border-white/[0.12] bg-obsidian-900 px-3 py-2 text-white font-medium"
                   >
                     {frag}
                   </span>

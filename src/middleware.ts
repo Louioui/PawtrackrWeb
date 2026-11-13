@@ -36,22 +36,50 @@ const CUSTOM_DOMAIN_MAP: Record<string, string> = {
 };
 
 function dataMode(pathname: string, method: string) {
-  const staffApis = ['/api/reservations', '/api/analytics', '/api/clients', '/api/settings', '/api/shifts',
-    '/api/onboarding', '/api/payments/intent', '/api/billing/create-checkout'];
-  const staffPages = ['/dashboard/analytics/live', '/dashboard/appointments/live', '/dashboard/clients/live',
-    '/dashboard/settings/live', '/signup'];
   const isWrite = method === 'POST' || method === 'PATCH' || method === 'DELETE';
-  return staffApis.includes(pathname)
-    ? (isWrite ? 'authenticated-write' : 'authenticated-read')
-    : staffPages.includes(pathname)
-      ? 'authenticated-read'
-      : pathname === '/api/webhooks/stripe'
-        ? 'verified-webhook'
-        : pathname.startsWith('/api/public/')
-          ? 'public-booking'
-          : pathname.startsWith('/portal/live')
-            ? 'public-catalog'
-            : 'demo-only';
+  const isStaffApi =
+    pathname.startsWith('/api/reservations') ||
+    pathname.startsWith('/api/analytics') ||
+    pathname.startsWith('/api/clients') ||
+    pathname.startsWith('/api/settings') ||
+    pathname.startsWith('/api/shifts') ||
+    pathname.startsWith('/api/stations') ||
+    pathname.startsWith('/api/onboarding') ||
+    pathname.startsWith('/api/payments/intent') ||
+    pathname.startsWith('/api/billing/create-checkout') ||
+    pathname.startsWith('/api/pos/') ||
+    pathname.startsWith('/api/operations/') ||
+    pathname.startsWith('/api/visits/') ||
+    pathname.startsWith('/api/payroll') ||
+    pathname.startsWith('/api/waitlist') ||
+    pathname.startsWith('/api/fleet') ||
+    pathname.startsWith('/api/import') ||
+    pathname.startsWith('/api/export') ||
+    pathname.startsWith('/api/config') ||
+    pathname.startsWith('/api/communications') ||
+    pathname.startsWith('/api/staff/') ||
+    pathname.startsWith('/api/waivers');
+
+  const isStaffPage =
+    (pathname.startsWith('/dashboard/') && (pathname.endsWith('/live') || pathname.includes('/live/'))) ||
+    pathname === '/signup';
+
+  if (isStaffApi) {
+    return isWrite ? 'authenticated-write' : 'authenticated-read';
+  }
+  if (isStaffPage) {
+    return 'authenticated-read';
+  }
+  if (pathname === '/api/webhooks/stripe') {
+    return 'verified-webhook';
+  }
+  if (pathname.startsWith('/api/public/')) {
+    return 'public-booking';
+  }
+  if (pathname.startsWith('/portal/live')) {
+    return 'public-catalog';
+  }
+  return 'demo-only';
 }
 
 function applyRateLimitHeaders(

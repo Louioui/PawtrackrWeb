@@ -300,6 +300,32 @@ export default function MobileVanFleetCommandPage() {
         </div>
       </div>
 
+      {/* Live Fleet Dispatch Workspace Banner */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 via-obsidian-900 to-obsidian-900 p-4 shadow-glass">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+            <Truck className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="text-sm font-bold text-white flex items-center gap-2">
+              Mobile Van & Hybrid Fleet Dispatch
+              <span className="rounded-full bg-cyan-500/20 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
+                WF22 • Live Telemetry
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400">
+              Fresh/gray water levels, battery telemetry, curbside arrival state transitions, and automated ETA client SMS notifications.
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/dashboard/fleet/live"
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-obsidian-950 hover:bg-cyan-400 transition"
+        >
+          Open Live Fleet Dispatch →
+        </Link>
+      </div>
+
       {toastMsg && (
         <div className="mb-6 flex items-center justify-between rounded-2xl border border-emerald-500/45 bg-emerald-500/15 px-5 py-3.5 text-xs font-medium text-emerald-200 shadow-emerald-glow">
           <span className="inline-flex items-center gap-2">

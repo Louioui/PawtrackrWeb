@@ -359,12 +359,46 @@ export default function CompetitorMigrationImporterPage() {
 
         <div className="flex items-center gap-2">
           <Link
+            href="/dashboard/import/live"
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20"
+          >
+            <Database className="h-3.5 w-3.5 text-emerald-400" />
+            Launch Live Data Portability Console →
+          </Link>
+          <Link
             href="/dashboard/analytics"
             className="rounded-xl border border-white/[0.1] bg-obsidian-800 px-3.5 py-2 text-xs font-semibold text-zinc-300 hover:text-white"
           >
             Executive Revenue Analytics →
           </Link>
         </div>
+      </div>
+
+      {/* Live Portability & Migration Engine Banner */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-obsidian-900 to-obsidian-900 p-4 shadow-glass">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            <Database className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="text-sm font-bold text-white flex items-center gap-2">
+              Data Portability & Zero-Downtime Migration Engine
+              <span className="rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                WF30 • WF33 • WF34
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400">
+              Validated competitor CSV imports with audit rollback, full multi-tenant export archives, and multi-location catalog cloning.
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/dashboard/import/live"
+          className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-obsidian-950 shadow-emerald-glow hover:bg-emerald-400 transition-colors shrink-0"
+        >
+          <span>Open Live Portability Console</span>
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </div>
 
       {/* Header */}

@@ -993,4 +993,763 @@ BEGIN
 END $$;
 SQL
 printf 'Double-booking race and daylight-saving hours checks passed.\n'
+
+# Scenario: Enterprise Slices 1-7 (WF00-WF40) workflow verification.
+psql -v ON_ERROR_STOP=1 -q <<'SQL'
+-- 0023: 6-role check, append-only workflow_events, idempotent provisioning,
+-- draft/paused/published gate, strict shift + station requirement, station
+-- overlap exclusion, and idempotent public booking + recovery lookup.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'eeeeeeee-0000-4000-8000-000000000000', false);
+SELECT set_config('request.jwt.claims', '{"email":"bespoke@example.test"}', false);
+DO $$
+DECLARE bespoke uuid;
+DECLARE retry_bespoke uuid;
+DECLARE sr_groomer uuid;
+DECLARE bather_id uuid;
+DECLARE table_one uuid;
+DECLARE target_day constant date := (now() AT TIME ZONE 'America/Chicago')::date + 10;
+DECLARE target_dow constant integer := EXTRACT(DOW FROM ((now() AT TIME ZONE 'America/Chicago')::date + 10))::integer;
+BEGIN
+  bespoke := public.provision_salon_with_model('Bespoke Grooming', 'bespoke-chicago', 'America/Chicago', 'Elena Vance', 'hybrid');
+  -- Dropped-connection retry with identical salon name + slug returns the same business_id.
+  retry_bespoke := public.provision_salon_with_model('Bespoke Grooming', 'bespoke-chicago', 'America/Chicago', 'Elena Vance', 'hybrid');
+  IF retry_bespoke IS DISTINCT FROM bespoke THEN
+    RAISE EXCEPTION 'Provisioning retry did not return the existing salon id';
+  END IF;
+  IF (SELECT booking_status || '|' || operating_model || '|' || (trial_ends_at IS NOT NULL)::text
+      FROM public.businesses WHERE id = bespoke) <> 'draft|hybrid|true' THEN
+    RAISE EXCEPTION 'Newly provisioned salon did not start in draft with trial_ends_at';
+  END IF;
+  IF (SELECT strict_shift_station_mode::text || '|' || tax_rate::text
+      FROM public.business_configs WHERE business_id = bespoke) <> 'true|0.00' THEN
+    RAISE EXCEPTION 'Newly provisioned salon did not set strict_shift_station_mode and 0.00 default tax';
+  END IF;
+  -- workflow_events recorded salon.provisioned once and rejects UPDATE (even under RLS).
+  IF (SELECT count(*) FROM public.workflow_events WHERE business_id = bespoke AND event_type = 'salon.provisioned') <> 1 THEN
+    RAISE EXCEPTION 'Provisioning did not record exactly one workflow_events entry';
+  END IF;
+  BEGIN
+    UPDATE public.workflow_events SET reason = 'tampered' WHERE business_id = bespoke;
+    RAISE EXCEPTION 'workflow_events allowed UPDATE';
+  EXCEPTION WHEN SQLSTATE 'PW040' THEN NULL;
+  END;
+  DELETE FROM public.workflow_events WHERE business_id = bespoke;
+  IF (SELECT count(*) FROM public.workflow_events WHERE business_id = bespoke) <> 1 THEN
+    RAISE EXCEPTION 'Authenticated role deleted a workflow_events row';
+  END IF;
+
+  -- Configure service, senior_groomer + bather, weekly shift, and 1 station, keeping salon in draft first.
+  UPDATE public.business_configs
+  SET custom_settings = custom_settings || '{
+    "packages":[{"id":"full-groom","name":"Full Groom","price":95,"durationMinutes":60}],
+    "operating_hours":{"open":"08:00","close":"18:00"},
+    "booking_buffer_mins":15
+  }'::jsonb
+  WHERE business_id = bespoke;
+
+  INSERT INTO public.staff_members (business_id, name, role, is_active)
+  VALUES (bespoke, 'Maya Senior', 'senior_groomer', true) RETURNING id INTO sr_groomer;
+  INSERT INTO public.staff_members (business_id, name, role, is_active)
+  VALUES (bespoke, 'Sam Bather', 'bather', true) RETURNING id INTO bather_id;
+END $$;
+RESET ROLE;
+
+-- While draft: absent from directory, readable in service catalog as 'draft', and PW024 on slot/book RPCs.
+SET ROLE anon;
+DO $$
+DECLARE target_day constant date := (now() AT TIME ZONE 'America/Chicago')::date + 10;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.booking_business_directory WHERE slug = 'bespoke-chicago') THEN
+    RAISE EXCEPTION 'Draft salon appeared in public directory';
+  END IF;
+  IF (SELECT booking_status FROM public.booking_service_catalog WHERE slug = 'bespoke-chicago') <> 'draft' THEN
+    RAISE EXCEPTION 'Draft salon did not expose draft booking_status on direct slug catalog';
+  END IF;
+  BEGIN
+    PERFORM public.public_booking_slots('bespoke-chicago', 'full-groom', target_day);
+    RAISE EXCEPTION 'Draft salon returned booking slots';
+  EXCEPTION WHEN SQLSTATE 'PW024' THEN NULL;
+  END;
+END $$;
+RESET ROLE;
+
+-- Publish without shift or station: 0 slots available because strict_shift_station_mode requires both.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'eeeeeeee-0000-4000-8000-000000000000', false);
+DO $$
+DECLARE bespoke uuid;
+DECLARE sr_groomer uuid;
+DECLARE table_one uuid;
+DECLARE target_day constant date := (now() AT TIME ZONE 'America/Chicago')::date + 10;
+DECLARE target_dow constant integer := EXTRACT(DOW FROM ((now() AT TIME ZONE 'America/Chicago')::date + 10))::integer;
+BEGIN
+  SELECT id INTO bespoke FROM public.businesses WHERE slug = 'bespoke-chicago';
+  SELECT id INTO sr_groomer FROM public.staff_members WHERE business_id = bespoke AND role = 'senior_groomer';
+  UPDATE public.businesses SET booking_status = 'published' WHERE id = bespoke;
+  IF (SELECT count(*) FROM public.public_booking_slots('bespoke-chicago', 'full-groom', target_day)) <> 0 THEN
+    RAISE EXCEPTION 'Strict salon offered slots without groomer shift and station';
+  END IF;
+  -- Add weekly shift, still 0 stations -> still 0 slots.
+  INSERT INTO public.staff_weekly_shifts (business_id, staff_id, day_of_week, start_time, end_time, assigned_station)
+  VALUES (bespoke, sr_groomer, target_dow, '09:00', '13:00', 'Table 1');
+  IF (SELECT count(*) FROM public.public_booking_slots('bespoke-chicago', 'full-groom', target_day)) <> 0 THEN
+    RAISE EXCEPTION 'Strict salon offered slots without an active station';
+  END IF;
+  -- Add 1 active station -> slots appear inside 09:00-13:00!
+  INSERT INTO public.salon_stations (business_id, name, station_type, is_active)
+  VALUES (bespoke, 'Table 1', 'table', true) RETURNING id INTO table_one;
+END $$;
+RESET ROLE;
+
+SET ROLE anon;
+DO $$
+DECLARE target_day constant date := (now() AT TIME ZONE 'America/Chicago')::date + 10;
+DECLARE slot_nine timestamptz;
+DECLARE first_res jsonb;
+DECLARE retry_res jsonb;
+DECLARE lookup_res jsonb;
+BEGIN
+  SELECT slot_start INTO slot_nine FROM public.public_booking_slots('bespoke-chicago', 'full-groom', target_day)
+    WHERE (slot_start AT TIME ZONE 'America/Chicago')::time = '09:00';
+  IF slot_nine IS NULL THEN
+    RAISE EXCEPTION 'Published salon with weekly shift + station did not offer 09:00 slot';
+  END IF;
+  IF (public.public_booking_attempt_status('bespoke-chicago', 'idem_key_bespoke_0001') ->> 'found')::boolean THEN
+    RAISE EXCEPTION 'Attempt lookup reported found before booking';
+  END IF;
+  first_res := public.public_book_appointment_idempotent(
+    'bespoke-chicago', 'full-groom', slot_nine,
+    'Sophia Alvarez', '312-555-0144', 'sophia@example.test', 'Bello', 'Goldendoodle', 'idem_key_bespoke_0001'
+  );
+  retry_res := public.public_book_appointment_idempotent(
+    'bespoke-chicago', 'full-groom', slot_nine,
+    'Sophia Alvarez', '312-555-0144', 'sophia@example.test', 'Bello', 'Goldendoodle', 'idem_key_bespoke_0001'
+  );
+  lookup_res := public.public_booking_attempt_status('bespoke-chicago', 'idem_key_bespoke_0001');
+  IF first_res ->> 'reference' <> retry_res ->> 'reference'
+     OR (retry_res ->> 'deduplicated')::boolean IS DISTINCT FROM true
+     OR (lookup_res ->> 'found')::boolean IS DISTINCT FROM true
+     OR lookup_res #>> '{booking,reference}' <> first_res ->> 'reference' THEN
+    RAISE EXCEPTION 'Idempotent booking retry or status lookup failed: % / % / %', first_res, retry_res, lookup_res;
+  END IF;
+END $$;
+RESET ROLE;
+
+-- Verify station exclusion constraint blocks a second groomer from taking the single station at the same time,
+-- and pausing the salon blocks new public bookings while keeping the booked visit intact.
+DO $$
+DECLARE bespoke uuid;
+DECLARE table_one uuid;
+DECLARE g2 uuid;
+DECLARE client_id uuid;
+DECLARE pet_id uuid;
+DECLARE booked_start timestamptz;
+BEGIN
+  SELECT id INTO bespoke FROM public.businesses WHERE slug = 'bespoke-chicago';
+  SELECT id INTO table_one FROM public.salon_stations WHERE business_id = bespoke;
+  SELECT v.client_id, v.pet_id, v.scheduled_time INTO client_id, pet_id, booked_start
+    FROM public.visits v WHERE v.business_id = bespoke LIMIT 1;
+  IF (SELECT count(*) FROM public.visits WHERE business_id = bespoke) <> 1 THEN
+    RAISE EXCEPTION 'Idempotent retry created duplicate visit rows';
+  END IF;
+  INSERT INTO public.staff_members (business_id, name, role, is_active)
+  VALUES (bespoke, 'Julian Groomer', 'groomer', true) RETURNING id INTO g2;
+  INSERT INTO public.staff_weekly_shifts (business_id, staff_id, day_of_week, start_time, end_time, assigned_station)
+  VALUES (bespoke, g2, EXTRACT(DOW FROM (booked_start AT TIME ZONE 'America/Chicago')::date)::integer, '09:00', '17:00', 'Table 1');
+  BEGIN
+    INSERT INTO public.visits (business_id, client_id, pet_id, staff_id, station_id,
+      service_package, total_amount, scheduled_time, duration_minutes, booking_buffer_minutes)
+    VALUES (bespoke, client_id, pet_id, g2, table_one, 'Overlap Station', 95, booked_start, 60, 15);
+    RAISE EXCEPTION 'Station exclusion constraint allowed double-booking Table 1';
+  EXCEPTION WHEN exclusion_violation THEN NULL;
+  END;
+  -- Slice 2 Operational RPC Tests (WF01, WF09, WF10, WF18)
+  PERFORM public.manager_open_day((booked_start AT TIME ZONE 'America/Chicago')::date, '{"staff_present": true, "stations_ready": true}'::jsonb);
+  IF (SELECT status FROM public.daily_salon_days WHERE business_id = bespoke LIMIT 1) <> 'open' THEN
+    RAISE EXCEPTION 'manager_open_day did not set status to open';
+  END IF;
+
+  DECLARE
+    v_id uuid;
+    v_checked_in jsonb;
+    v_stage jsonb;
+    v_released jsonb;
+    v_ver int;
+    v_tx jsonb;
+    v_tx_id uuid;
+    v_refund jsonb;
+    v2_id uuid;
+    v_surcharge jsonb;
+    v_surcharge_id uuid;
+    v_incident jsonb;
+    v_inc_id uuid;
+    v3_id uuid;
+    v_card jsonb;
+    v_card_id uuid;
+    v_closeout jsonb;
+    v_comm jsonb;
+    v_payroll jsonb;
+    v_period_id uuid;
+    v_staff_count int;
+    v_wl_entry jsonb;
+    v_wl_entry_id uuid;
+    v_wl_offer jsonb;
+    v_wl_offer_id uuid;
+    v_wl_claim jsonb;
+    v_wl_token text;
+    v_wl_entry2 jsonb;
+    v_wl_entry2_id uuid;
+    v_wl_offer2 jsonb;
+    v_wl_offer2_id uuid;
+    v_wl_token2 text;
+    v_wl_expired jsonb;
+    v_van_id uuid;
+    v_van_res jsonb;
+    v_stop_res jsonb;
+    v_sibling_salon uuid;
+    v_cfg_res jsonb;
+    v_import_res jsonb;
+    v_import_job_id uuid;
+    v_rollback_res jsonb;
+  BEGIN
+    SELECT id, version INTO v_id, v_ver FROM public.visits WHERE business_id = bespoke LIMIT 1;
+
+    -- Check-in
+    v_checked_in := public.check_in_visit(v_id, 'Alice Parent', '555-0199', 42.5, NULL, 'verified', false, 0);
+    IF (v_checked_in->>'status') <> 'checked_in' THEN
+      RAISE EXCEPTION 'check_in_visit did not set status to checked_in';
+    END IF;
+
+    -- Advance stage before safety notes acknowledged must fail with PW030
+    BEGIN
+      PERFORM public.advance_visit_stage(v_id, 'bathing');
+      RAISE EXCEPTION 'advance_visit_stage allowed bathing without safety notes acknowledged';
+    EXCEPTION WHEN SQLSTATE 'PW030' THEN NULL;
+    END;
+
+    -- Acknowledge safety notes
+    PERFORM public.acknowledge_safety_notes(v_id);
+
+    -- Optimistic concurrency mismatch must fail with PW029
+    BEGIN
+      PERFORM public.advance_visit_stage(v_id, 'bathing', 'Shampoo applied', 0);
+      RAISE EXCEPTION 'advance_visit_stage allowed stale version';
+    EXCEPTION WHEN SQLSTATE 'PW029' THEN NULL;
+    END;
+
+    -- Advance to bathing with current version
+    SELECT version INTO v_ver FROM public.visits WHERE id = v_id;
+    v_stage := public.advance_visit_stage(v_id, 'bathing', 'Gentle oatmeal bath', v_ver);
+    IF (v_stage->>'status') <> 'bathing' THEN
+      RAISE EXCEPTION 'advance_visit_stage did not set status to bathing';
+    END IF;
+
+    -- Advance through drying, styling, ready
+    SELECT version INTO v_ver FROM public.visits WHERE id = v_id;
+    PERFORM public.advance_visit_stage(v_id, 'drying', 'High velocity dryer', v_ver);
+    SELECT version INTO v_ver FROM public.visits WHERE id = v_id;
+    PERFORM public.advance_visit_stage(v_id, 'styling', 'Teddy bear face scissor', v_ver);
+    SELECT version INTO v_ver FROM public.visits WHERE id = v_id;
+    v_stage := public.advance_visit_stage(v_id, 'ready', 'Pet is styled and ready', v_ver);
+    IF (v_stage->>'status') <> 'ready' THEN
+      RAISE EXCEPTION 'advance_visit_stage did not set status to ready';
+    END IF;
+
+    -- Unpaid release without manager override must fail with PW035
+    BEGIN
+      PERFORM public.release_visit(v_id, 'Alice Parent', false, NULL);
+      RAISE EXCEPTION 'release_visit allowed unpaid release without manager override';
+    EXCEPTION WHEN SQLSTATE 'PW035' THEN NULL;
+    END;
+
+    -- Release with manager unpaid override
+    v_released := public.release_visit(v_id, 'Alice Parent', true, 'Client will settle by card online');
+    IF (v_released->>'status') <> 'released_unpaid' THEN
+      RAISE EXCEPTION 'release_visit did not set status to released_unpaid';
+    END IF;
+
+    -- ========================================================================
+    -- SLICE 3: POS CHECKOUT, SETTLEMENT, SURCHARGES & EXCEPTIONS
+    -- ========================================================================
+    -- 1. POS Checkout Math Mismatch invariant (PW041)
+    BEGIN
+      PERFORM public.record_pos_checkout(v_id, 95.00, 0.00, 5.00, 10.00, 100.00, 'cash', NULL, true);
+      RAISE EXCEPTION 'record_pos_checkout allowed unbalanced breakdown';
+    EXCEPTION WHEN SQLSTATE 'PW041' THEN NULL;
+    END;
+
+    -- 2. Valid POS Cash Checkout on released_unpaid visit -> settles immediately and completes visit
+    v_tx := public.record_pos_checkout(v_id, 95.00, 0.00, 5.00, 10.00, 110.00, 'cash', NULL, true);
+    v_tx_id := (v_tx->>'id')::uuid;
+
+    IF (v_tx->>'settlement_status') <> 'settled' THEN
+      RAISE EXCEPTION 'record_pos_checkout did not mark cash transaction as settled';
+    END IF;
+
+    IF (SELECT status FROM public.visits WHERE id = v_id) <> 'completed' THEN
+      RAISE EXCEPTION 'record_pos_checkout did not complete released_unpaid visit upon cash settlement';
+    END IF;
+
+    -- 3. Refund with short/missing explanation fails (PW046)
+    BEGIN
+      PERFORM public.process_visit_refund(v_tx_id, 50.00, 'too short');
+      RAISE EXCEPTION 'process_visit_refund allowed refund without valid explanation';
+    EXCEPTION WHEN SQLSTATE 'PW046' THEN NULL;
+    END;
+
+    -- 4. Valid Refund (WF15) -> transaction refunded, visit refunded
+    v_refund := public.process_visit_refund(v_tx_id, 110.00, 'Customer dissatisfied with styling after coat inspection');
+    IF (SELECT status FROM public.transactions WHERE id = v_tx_id) <> 'refunded' THEN
+      RAISE EXCEPTION 'process_visit_refund did not mark transaction as refunded';
+    END IF;
+    IF (SELECT status FROM public.visits WHERE id = v_id) <> 'refunded' THEN
+      RAISE EXCEPTION 'process_visit_refund did not mark visit as refunded';
+    END IF;
+
+    -- 5. Surcharges (WF11) & Safety Stop (WF05/WF14) on a second visit
+    INSERT INTO public.visits (business_id, client_id, pet_id, staff_id, station_id,
+      service_package, total_amount, scheduled_time, duration_minutes, booking_buffer_minutes, status)
+    VALUES (bespoke, client_id, pet_id, g2, table_one, 'Bath & Brush', 60.00, booked_start + interval '4 hours', 45, 15, 'styling')
+    RETURNING id INTO v2_id;
+
+    -- Request Surcharge
+    v_surcharge := public.request_visit_surcharge(v2_id, 25.00, 'matted_coat', 20, 'Severe matting behind ears', 'https://example.test/matting.jpg');
+    v_surcharge_id := (v_surcharge->>'id')::uuid;
+
+    IF (SELECT status FROM public.visits WHERE id = v2_id) <> 'change_pending' THEN
+      RAISE EXCEPTION 'request_visit_surcharge did not set visit status to change_pending';
+    END IF;
+
+    -- Resolve Surcharge without client consent must fail with PW044
+    BEGIN
+      PERFORM public.resolve_visit_surcharge(v_surcharge_id, true, false, 'Attempting approval without consent');
+      RAISE EXCEPTION 'resolve_visit_surcharge allowed approval without client consent';
+    EXCEPTION WHEN SQLSTATE 'PW044' THEN NULL;
+    END;
+
+    -- Resolve Surcharge with client consent -> total updated, extra time added, status restored to styling
+    PERFORM public.resolve_visit_surcharge(v_surcharge_id, true, true, 'Client approved via SMS confirmation');
+    IF (SELECT total_amount FROM public.visits WHERE id = v2_id) <> 85.00 THEN
+      RAISE EXCEPTION 'Approved surcharge did not add to visit total_amount';
+    END IF;
+    IF (SELECT duration_minutes FROM public.visits WHERE id = v2_id) <> 65 THEN
+      RAISE EXCEPTION 'Approved surcharge did not add extra time to duration_minutes';
+    END IF;
+    IF (SELECT status FROM public.visits WHERE id = v2_id) <> 'styling' THEN
+      RAISE EXCEPTION 'Approved surcharge did not restore visit status to styling';
+    END IF;
+
+    -- Double resolution fails with PW043
+    BEGIN
+      PERFORM public.resolve_visit_surcharge(v_surcharge_id, false, false, 'Already resolved');
+      RAISE EXCEPTION 'resolve_visit_surcharge allowed resolving already resolved surcharge';
+    EXCEPTION WHEN SQLSTATE 'PW043' THEN NULL;
+    END;
+
+    -- 6. Safety Stop & Incident Report (WF05 / WF14)
+    v_incident := public.stop_service_safety_concern(
+      v2_id, 'Pet snapped suddenly during face scissoring', 'dog_bite', 'severe',
+      'Puncture wound cleaned and bandaged with antiseptic', false, 40.00
+    );
+    v_inc_id := (v_incident->>'incident_id')::uuid;
+
+    IF (SELECT status FROM public.visits WHERE id = v2_id) <> 'partly_completed' THEN
+      RAISE EXCEPTION 'stop_service_safety_concern did not set visit status to partly_completed';
+    END IF;
+    IF (SELECT total_amount FROM public.visits WHERE id = v2_id) <> 40.00 THEN
+      RAISE EXCEPTION 'stop_service_safety_concern did not adjust visit total_amount';
+    END IF;
+
+    -- Incident Report Immutability (PW040)
+    BEGIN
+      UPDATE public.incident_reports SET severity = 'minor' WHERE id = v_inc_id;
+      RAISE EXCEPTION 'Allowed updating locked incident report';
+    EXCEPTION WHEN SQLSTATE 'PW040' THEN NULL;
+    END;
+
+    BEGIN
+      DELETE FROM public.incident_reports WHERE id = v_inc_id;
+      RAISE EXCEPTION 'Allowed deleting locked incident report';
+    EXCEPTION WHEN SQLSTATE 'PW040' THEN NULL;
+    END;
+
+    -- ========================================================================
+    -- SLICE 4: COMMUNICATIONS, REPORT CARDS & DAY CLOSEOUT
+    -- ========================================================================
+    -- 1. Create a 3rd visit on the same day in 'bathing' status (in-progress)
+    INSERT INTO public.visits (business_id, client_id, pet_id, staff_id, station_id,
+      service_package, total_amount, scheduled_time, duration_minutes, booking_buffer_minutes, status)
+    VALUES (bespoke, client_id, pet_id, g2, table_one, 'Deluxe Bath', 50.00, booked_start + interval '6 hours', 45, 15, 'bathing')
+    RETURNING id INTO v3_id;
+
+    -- 2. Day Closeout rejection due to in-progress visit (PW048)
+    BEGIN
+      PERFORM public.close_salon_day((booked_start AT TIME ZONE 'America/Chicago')::date, 0, NULL);
+      RAISE EXCEPTION 'close_salon_day allowed closing day with in-progress visits';
+    EXCEPTION WHEN SQLSTATE 'PW048' THEN NULL;
+    END;
+
+    -- 3. Save report card draft (WF07)
+    v_card := public.save_report_card_draft(v3_id, 'good', '["cooperative", "calm"]'::jsonb, 'Handled bath very well', 'Brush twice weekly');
+    v_card_id := (v_card->>'report_card_id')::uuid;
+    IF (v_card->>'status') <> 'draft' THEN
+      RAISE EXCEPTION 'save_report_card_draft did not create draft report card';
+    END IF;
+
+    -- 4. Publication gate: cannot publish report card while visit is in bathing (PW052)
+    BEGIN
+      PERFORM public.publish_report_card(v3_id, 'good', '["cooperative"]'::jsonb, 'All good', 'Brush daily');
+      RAISE EXCEPTION 'publish_report_card allowed publishing while visit in bathing status';
+    EXCEPTION WHEN SQLSTATE 'PW052' THEN NULL;
+    END;
+
+    -- 5. Advance v3_id to 'ready' -> now report card can be published
+    UPDATE public.visits SET status = 'ready' WHERE id = v3_id;
+    v_card := public.publish_report_card(v3_id, 'excellent', '["calm", "happy_tail"]'::jsonb, 'Shiny clean coat!', 'Maintenance bath in 4 weeks');
+    IF (v_card->>'status') <> 'published' THEN
+      RAISE EXCEPTION 'publish_report_card did not publish report card';
+    END IF;
+    IF (SELECT count(*) FROM public.client_communications WHERE visit_id = v3_id AND message_type = 'report_card_ready') <> 1 THEN
+      RAISE EXCEPTION 'publish_report_card did not queue client communication';
+    END IF;
+
+    -- 6. POS Checkout v3_id with cash -> visit paid (awaiting physical release)
+    PERFORM public.record_pos_checkout(v3_id, 45.00, 0.00, 5.00, 0.00, 50.00, 'cash', NULL, true);
+    IF (SELECT status FROM public.visits WHERE id = v3_id) <> 'paid' THEN
+      RAISE EXCEPTION 'Checkout did not transition v3_id to paid';
+    END IF;
+
+    -- Pet is paid but not yet released; day closeout must be blocked (PW048)
+    BEGIN
+      PERFORM public.close_salon_day((booked_start AT TIME ZONE 'America/Chicago')::date, 5000, NULL);
+      RAISE EXCEPTION 'close_salon_day allowed closing day with unreleased paid visit';
+    EXCEPTION WHEN SQLSTATE 'PW048' THEN NULL;
+    END;
+
+    -- Release pet to parent -> visit transitions to completed
+    v_released := public.release_visit(v3_id, 'Alice Parent', false, NULL);
+    IF (v_released->>'status') <> 'completed' THEN
+      RAISE EXCEPTION 'release_visit did not complete paid visit v3_id';
+    END IF;
+
+    -- 7. Day Closeout rejection: variance without explanation (PW049)
+    -- Expected cash: 5000 cents ($50). Providing counted = 6000 cents ($60) without reason:
+    BEGIN
+      PERFORM public.close_salon_day((booked_start AT TIME ZONE 'America/Chicago')::date, 6000, '');
+      RAISE EXCEPTION 'close_salon_day allowed cash variance without explanation note';
+    EXCEPTION WHEN SQLSTATE 'PW049' THEN NULL;
+    END;
+
+    -- 8. Valid Day Closeout with variance explanation (WF08)
+    v_closeout := public.close_salon_day((booked_start AT TIME ZONE 'America/Chicago')::date, 6000, '$10 overage: extra cash tip placed in drawer');
+    IF (v_closeout->>'status') <> 'closed' THEN
+      RAISE EXCEPTION 'close_salon_day did not set status to closed';
+    END IF;
+    IF (v_closeout->>'expected_cash_cents')::int <> 5000 THEN
+      RAISE EXCEPTION 'close_salon_day calculated wrong expected_cash_cents: %', v_closeout->>'expected_cash_cents';
+    END IF;
+    IF (v_closeout->>'variance_cents')::int <> 1000 THEN
+      RAISE EXCEPTION 'close_salon_day calculated wrong variance_cents: %', v_closeout->>'variance_cents';
+    END IF;
+
+    -- 9. Closed Day Immutability (PW051)
+    BEGIN
+      UPDATE public.daily_salon_days
+      SET expected_cash_cents = 0
+      WHERE business_id = bespoke AND salon_date = (booked_start AT TIME ZONE 'America/Chicago')::date;
+      RAISE EXCEPTION 'Allowed modifying locked daily_salon_days after closeout';
+    EXCEPTION WHEN SQLSTATE 'PW051' THEN NULL;
+    END;
+
+    -- 10. Client Communication Logging (WF16 / WF17)
+    v_comm := public.log_client_communication(
+      client_id, 'ready_for_pickup', 'sms', 'Your pet is ready for pickup!',
+      v3_id, 'sent', 'msg_tw_12345', NULL, '555-0199', NULL
+    );
+    IF (v_comm->>'status') <> 'sent' THEN
+      RAISE EXCEPTION 'log_client_communication did not record sent communication';
+    END IF;
+
+    -- ========================================================================
+    -- SLICE 5: PAYROLL, COMMISSIONS & PERIOD LOCK (WF08, WF28, WF34)
+    -- ========================================================================
+    -- 11. Calculate payroll summary (WF28)
+    SELECT count(*) INTO v_staff_count
+    FROM public.calculate_payroll_summary(
+      bespoke,
+      (booked_start AT TIME ZONE 'America/Chicago')::date - 7,
+      (booked_start AT TIME ZONE 'America/Chicago')::date + 7,
+      'direct',
+      15.00
+    );
+    IF v_staff_count = 0 THEN
+      RAISE EXCEPTION 'calculate_payroll_summary returned 0 rows for active salon';
+    END IF;
+
+    -- 12. Lock payroll period (WF08)
+    v_payroll := public.lock_payroll_period(
+      (booked_start AT TIME ZONE 'America/Chicago')::date - 7,
+      (booked_start AT TIME ZONE 'America/Chicago')::date + 7,
+      'direct',
+      15.00,
+      'Bi-weekly staff payroll closeout'
+    );
+    IF (v_payroll->>'status') <> 'locked' THEN
+      RAISE EXCEPTION 'lock_payroll_period did not return status = locked';
+    END IF;
+    v_period_id := (v_payroll->>'period_id')::uuid;
+
+    -- 13. Locked payroll period immutability (PW060)
+    BEGIN
+      UPDATE public.payroll_periods
+      SET total_payout_cents = 0
+      WHERE id = v_period_id;
+      RAISE EXCEPTION 'Allowed modifying locked payroll period totals';
+    EXCEPTION WHEN SQLSTATE 'PW060' THEN NULL;
+    END;
+
+    BEGIN
+      DELETE FROM public.payroll_periods WHERE id = v_period_id;
+      RAISE EXCEPTION 'Allowed deleting locked payroll period';
+    EXCEPTION WHEN SQLSTATE 'PW060' THEN NULL;
+    END;
+
+    -- ========================================================================
+    -- SLICE 6: WAITLIST ENGINE, AUTOMATED SLOT HOLDS & EXPIRATION (WF02, WF15)
+    -- ========================================================================
+    -- 14. Create Waitlist Entry (WF02)
+    v_wl_entry := public.create_waitlist_entry(
+      client_id,
+      pet_id,
+      'Full Groom',
+      g2,
+      ARRAY[(booked_start AT TIME ZONE 'America/Chicago')::date + 2],
+      'morning',
+      'Prefers quiet morning slot if possible'
+    );
+    IF (v_wl_entry->>'success')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'create_waitlist_entry failed: %', v_wl_entry;
+    END IF;
+    v_wl_entry_id := (v_wl_entry->>'entry_id')::uuid;
+
+    -- 15. Generate Waitlist Offer (WF15: 2-hour hold)
+    v_wl_offer := public.generate_waitlist_offer(
+      v_wl_entry_id,
+      booked_start + interval '7 days' + interval '2 hours',
+      booked_start + interval '7 days' + interval '3 hours',
+      g2,
+      table_one,
+      120
+    );
+    IF (v_wl_offer->>'success')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'generate_waitlist_offer failed: %', v_wl_offer;
+    END IF;
+    v_wl_offer_id := (v_wl_offer->>'offer_id')::uuid;
+    v_wl_token := v_wl_offer->>'claim_token';
+
+    IF (SELECT status FROM public.waitlist_entries WHERE id = v_wl_entry_id) <> 'offered' THEN
+      RAISE EXCEPTION 'Waitlist entry status did not update to offered';
+    END IF;
+
+    -- 16. Claim Waitlist Offer with Token (WF15 / GiST re-verification)
+    v_wl_claim := public.claim_waitlist_offer(v_wl_offer_id, v_wl_token);
+    IF (v_wl_claim->>'success')::boolean IS NOT TRUE OR (v_wl_claim->>'status') <> 'booked' THEN
+      RAISE EXCEPTION 'claim_waitlist_offer failed: %', v_wl_claim;
+    END IF;
+    IF (SELECT status FROM public.waitlist_entries WHERE id = v_wl_entry_id) <> 'booked' THEN
+      RAISE EXCEPTION 'Waitlist entry status did not update to booked';
+    END IF;
+    IF (SELECT status FROM public.waitlist_offers WHERE id = v_wl_offer_id) <> 'accepted' THEN
+      RAISE EXCEPTION 'Waitlist offer status did not update to accepted';
+    END IF;
+
+    -- 17. Verify Expired Offer Rejection (PW062: "Silence is never acceptance")
+    v_wl_entry2 := public.create_waitlist_entry(
+      client_id,
+      pet_id,
+      'Full Groom',
+      g2,
+      '{}'::date[],
+      'any',
+      'Second waitlist entry for expiration test'
+    );
+    v_wl_entry2_id := (v_wl_entry2->>'entry_id')::uuid;
+
+    v_wl_offer2 := public.generate_waitlist_offer(
+      v_wl_entry2_id,
+      booked_start + interval '7 days' + interval '4 hours',
+      booked_start + interval '7 days' + interval '5 hours',
+      g2,
+      table_one,
+      120
+    );
+    v_wl_offer2_id := (v_wl_offer2->>'offer_id')::uuid;
+    v_wl_token2 := v_wl_offer2->>'claim_token';
+
+    -- Simulate expiration by setting offer_expires_at in the past
+    UPDATE public.waitlist_offers
+    SET offer_expires_at = timezone('utc'::text, now()) - interval '5 minutes'
+    WHERE id = v_wl_offer2_id;
+
+    BEGIN
+      PERFORM public.claim_waitlist_offer(v_wl_offer2_id, v_wl_token2);
+      RAISE EXCEPTION 'claim_waitlist_offer allowed claiming expired slot hold';
+    EXCEPTION WHEN SQLSTATE 'PW062' THEN NULL;
+    END;
+
+    -- 18. Sweep Expired Offers RPC (WF38 / WF39)
+    v_wl_expired := public.expire_waitlist_offers();
+    IF (v_wl_expired->>'success')::boolean IS NOT TRUE OR (v_wl_expired->>'expired_offers_count')::int < 1 THEN
+      RAISE EXCEPTION 'expire_waitlist_offers failed or did not sweep expired offer: %', v_wl_expired;
+    END IF;
+
+    -- Verify offer transitioned to expired and entry reverted back to active
+    IF (SELECT status FROM public.waitlist_offers WHERE id = v_wl_offer2_id) <> 'expired' THEN
+      RAISE EXCEPTION 'Expired offer did not transition to expired';
+    END IF;
+    IF (SELECT status FROM public.waitlist_entries WHERE id = v_wl_entry2_id) <> 'active' THEN
+      RAISE EXCEPTION 'Expired offer did not revert entry status back to active';
+    END IF;
+    -- 19. Mobile Van Telemetry Tracking (WF22 / PW070)
+    INSERT INTO public.salon_stations (business_id, name, station_type, is_active)
+    VALUES (bespoke, 'Mobile Van 1', 'van', true)
+    RETURNING id INTO v_van_id;
+
+    v_van_res := public.update_van_telemetry(v_van_id, 88, 92, 15, 14250.5, 41.8818, -87.6231);
+    IF (v_van_res->>'success')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'update_van_telemetry failed: %', v_van_res;
+    END IF;
+    IF (v_van_res->>'battery_pct')::int <> 88 OR (v_van_res->>'water_tank_pct')::int <> 92 THEN
+      RAISE EXCEPTION 'update_van_telemetry returned invalid levels: %', v_van_res;
+    END IF;
+
+    -- Reject telemetry update on non-van station (PW070)
+    BEGIN
+      PERFORM public.update_van_telemetry(table_one, 50, 50, 50, 1000.0, 0.0, 0.0);
+      RAISE EXCEPTION 'update_van_telemetry allowed telemetry update on non-van station';
+    EXCEPTION WHEN SQLSTATE 'PW070' THEN NULL;
+    END;
+
+    -- 20. Curbside Stop Progression (WF22 / PW071)
+    v_stop_res := public.advance_curbside_stop(v_id, 'en_route');
+    IF (v_stop_res->>'curbside_status') <> 'en_route' THEN
+      RAISE EXCEPTION 'advance_curbside_stop failed to transition to en_route';
+    END IF;
+
+    v_stop_res := public.advance_curbside_stop(v_id, 'arrived');
+    IF (v_stop_res->>'curbside_status') <> 'arrived' THEN
+      RAISE EXCEPTION 'advance_curbside_stop failed to transition to arrived';
+    END IF;
+
+    v_stop_res := public.advance_curbside_stop(v_id, 'curbside_active');
+    IF (v_stop_res->>'curbside_status') <> 'curbside_active' THEN
+      RAISE EXCEPTION 'advance_curbside_stop failed to transition to curbside_active';
+    END IF;
+
+    v_stop_res := public.advance_curbside_stop(v_id, 'completed');
+    IF (v_stop_res->>'curbside_status') <> 'completed' THEN
+      RAISE EXCEPTION 'advance_curbside_stop failed to transition to completed';
+    END IF;
+
+    -- 21. Configuration Copying with Zero-Leakage (WF30 / PW072)
+    INSERT INTO public.businesses (name, slug, owner_email, subscription_status, booking_status)
+    VALUES ('Bespoke Suburb', 'bespoke-suburb', 'bespoke@example.test', 'active', 'draft')
+    RETURNING id INTO v_sibling_salon;
+
+    INSERT INTO public.business_configs (business_id, custom_settings)
+    VALUES (v_sibling_salon, '{}'::jsonb);
+
+    -- Dry run preview
+    v_cfg_res := public.copy_salon_configuration(bespoke, v_sibling_salon, true);
+    IF (v_cfg_res->>'dry_run')::boolean IS NOT TRUE OR (v_cfg_res->>'packages_count')::int < 1 THEN
+      RAISE EXCEPTION 'copy_salon_configuration dry run failed: %', v_cfg_res;
+    END IF;
+
+    -- Apply real copy
+    v_cfg_res := public.copy_salon_configuration(bespoke, v_sibling_salon, false);
+    IF (v_cfg_res->>'dry_run')::boolean IS NOT FALSE OR (v_cfg_res->>'packages_copied')::int < 1 THEN
+      RAISE EXCEPTION 'copy_salon_configuration apply failed: %', v_cfg_res;
+    END IF;
+
+    -- Verify zero-leakage invariant (PW072): zero clients or visits in target salon
+    IF (SELECT count(*) FROM public.clients WHERE business_id = v_sibling_salon) <> 0 THEN
+      RAISE EXCEPTION 'Zero-leakage violation: clients copied to sibling salon';
+    END IF;
+    IF (SELECT count(*) FROM public.visits WHERE business_id = v_sibling_salon) <> 0 THEN
+      RAISE EXCEPTION 'Zero-leakage violation: visits copied to sibling salon';
+    END IF;
+
+    -- 22. Competitor Data Import & Atomic Rollback (WF33 / PW073 / PW074)
+    v_import_res := public.apply_import_job(
+      'moego',
+      'moego_sample.csv',
+      '[{"client_name": "Legacy Parent", "client_phone": "555-0999", "client_email": "legacy@test.io", "pet_name": "Legacy Dog", "breed": "Poodle", "weight_lbs": 30.5, "legacy_notes": "Needs gentle drying"}]'::jsonb
+    );
+    IF (v_import_res->>'success')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'apply_import_job failed: %', v_import_res;
+    END IF;
+    v_import_job_id := (v_import_res->>'job_id')::uuid;
+
+    -- Verify pet has explicit legacy provenance notes and rabies unverified (PW073)
+    IF (SELECT behavior_notes FROM public.pets WHERE business_id = bespoke AND name = 'Legacy Dog') NOT LIKE '%[LEGACY IMPORT: MOEGO]%' THEN
+      RAISE EXCEPTION 'Imported pet missing legacy provenance badge';
+    END IF;
+    IF (SELECT rabies_verified FROM public.pets WHERE business_id = bespoke AND name = 'Legacy Dog') IS NOT FALSE THEN
+      RAISE EXCEPTION 'Imported pet rabies was marked verified';
+    END IF;
+
+    -- Atomic Rollback
+    v_rollback_res := public.rollback_import_job(v_import_job_id);
+    IF (v_rollback_res->>'success')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'rollback_import_job failed: %', v_rollback_res;
+    END IF;
+
+    -- Verify imported entities were purged
+    IF EXISTS (SELECT 1 FROM public.pets WHERE business_id = bespoke AND name = 'Legacy Dog') THEN
+      RAISE EXCEPTION 'Rollback did not remove imported pet';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.clients WHERE business_id = bespoke AND phone = '555-0999') THEN
+      RAISE EXCEPTION 'Rollback did not remove imported client';
+    END IF;
+    IF (SELECT status FROM public.import_jobs WHERE id = v_import_job_id) <> 'rolled_back' THEN
+      RAISE EXCEPTION 'Import job status did not update to rolled_back';
+    END IF;
+  END;
+
+  UPDATE public.businesses SET booking_status = 'paused' WHERE id = bespoke;
+END $$;
+
+SET ROLE anon;
+DO $$
+DECLARE target_day constant date := (now() AT TIME ZONE 'America/Chicago')::date + 10;
+BEGIN
+  IF (SELECT booking_status FROM public.booking_service_catalog WHERE slug = 'bespoke-chicago') <> 'paused' THEN
+    RAISE EXCEPTION 'Paused salon did not project paused booking_status';
+  END IF;
+  BEGIN
+    PERFORM public.public_booking_slots('bespoke-chicago', 'full-groom', target_day);
+    RAISE EXCEPTION 'Paused salon returned booking slots';
+  EXCEPTION WHEN SQLSTATE 'PW024' THEN NULL;
+  END;
+END $$;
+RESET ROLE;
+
+--Even superuser/service_role cannot directly delete audit rows for an existing salon,
+--yet deleting the salon itself cascades cleanly.
+DO $$
+DECLARE bespoke uuid;
+BEGIN
+  SELECT id INTO bespoke FROM public.businesses WHERE slug = 'bespoke-chicago';
+  BEGIN
+    DELETE FROM public.workflow_events WHERE business_id = bespoke;
+    RAISE EXCEPTION 'Direct workflow_events delete succeeded for existing salon';
+  EXCEPTION WHEN SQLSTATE 'PW040' THEN NULL;
+  END;
+  DELETE FROM public.businesses WHERE id = bespoke;
+  IF (SELECT count(*) FROM public.workflow_events WHERE business_id = bespoke) <> 0 THEN
+    RAISE EXCEPTION 'Deleting a salon did not cascade its workflow_events';
+  END IF;
+END $$;
+SQL
 printf 'Migration execution and basic tenant/RPC checks passed.\n'

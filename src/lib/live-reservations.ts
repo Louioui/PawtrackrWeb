@@ -1,10 +1,14 @@
 export type LiveReservation = {
   id: string;
+  reference?: string | null;
   scheduled_time: string;
   reservation_end: string;
   status: 'booked' | 'dropped_off' | 'bathing' | 'styling' | 'ready' | 'completed' | 'cancelled';
   service_package: string;
   staff_id: string | null;
+  station_id?: string | null;
+  station_name?: string | null;
+  is_test_booking?: boolean;
   pet_name: string;
   client_name: string;
   staff_name: string;
@@ -304,8 +308,25 @@ export function normalizeLiveReservationDay(input: unknown, expectedDate: string
         !label(raw.service_package) || !label(raw.pet_name) || !label(raw.client_name) || !label(raw.staff_name)) {
       throw new Error('Invalid live reservation');
     }
+    const reference = typeof (raw as Record<string, unknown>).reference === 'string' && (raw as Record<string, unknown>).reference
+      ? String((raw as Record<string, unknown>).reference).trim()
+      : null;
+    const stationId = typeof (raw as Record<string, unknown>).station_id === 'string' && uuid.test(String((raw as Record<string, unknown>).station_id))
+      ? String((raw as Record<string, unknown>).station_id)
+      : null;
+    const stationName = typeof (raw as Record<string, unknown>).station_name === 'string' && (raw as Record<string, unknown>).station_name
+      ? String((raw as Record<string, unknown>).station_name).trim()
+      : null;
+    const isTestBooking = Boolean((raw as Record<string, unknown>).is_test_booking);
+
     ids.add(raw.id);
-    return raw as LiveReservation;
+    return {
+      ...(raw as LiveReservation),
+      reference,
+      station_id: stationId,
+      station_name: stationName,
+      is_test_booking: isTestBooking,
+    };
   });
   reservations.sort((a, b) => Date.parse(a.scheduled_time) - Date.parse(b.scheduled_time) || a.id.localeCompare(b.id));
   const bookingOptions = input.booking_options !== undefined ? normalizeBookingOptions(input.booking_options) : undefined;
@@ -336,11 +357,13 @@ export function liveReservationCsv(
   const allowed = new Set(day.reservations.map((item) => item.id));
   if (visibleReservations.some((item) => !allowed.has(item.id))) throw new Error('Reservation is outside this snapshot');
   const header = ['source', 'business_id', 'utc_date', 'as_of_utc', 'snapshot_state', 'visit_id',
-    'start_utc', 'reservation_end_utc', 'status', 'pet_name', 'client_name', 'groomer_name', 'service_package'];
+    'start_utc', 'reservation_end_utc', 'status', 'pet_name', 'client_name', 'groomer_name', 'service_package',
+    'reference', 'station_name', 'is_test_booking'];
   const rows = visibleReservations.map((item) => [
     day.source, day.business_id, day.date, new Date(day.as_of).toISOString(), snapshotState, item.id,
     new Date(item.scheduled_time).toISOString(), new Date(item.reservation_end).toISOString(),
     item.status, item.pet_name, item.client_name, item.staff_name, item.service_package,
+    item.reference ?? '', item.station_name ?? '', item.is_test_booking ? 'true' : 'false',
   ]);
   return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }

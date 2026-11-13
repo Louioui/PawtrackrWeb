@@ -177,6 +177,32 @@ export default function StaffCommissionPayrollPage() {
         </div>
       </div>
 
+      {/* Live Payroll Command Floor Banner */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-obsidian-900 to-obsidian-900 p-4 shadow-glass">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            <DollarSign className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="text-sm font-bold text-white flex items-center gap-2">
+              Staff Payroll Command & Period Lock
+              <span className="rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                WF08 • WF28 • WF34
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400">
+              Bi-weekly period locking, immutable historical ledgers, bather tip pooling, and Gusto/QuickBooks exports.
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/dashboard/payroll/live"
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-obsidian-950 hover:bg-emerald-400 transition"
+        >
+          Open Live Payroll Command →
+        </Link>
+      </div>
+
       {exportedCsvToast && (
         <div className="mb-6 flex items-center justify-between rounded-2xl border border-emerald-500/40 bg-emerald-500/15 px-5 py-3 text-xs font-semibold text-emerald-300">
           <span className="inline-flex items-center gap-2">

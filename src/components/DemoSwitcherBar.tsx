@@ -57,10 +57,16 @@ export function DemoSwitcherBar() {
   };
 
   if (
+    !pathname ||
     pathname === '/' ||
-    pathname?.startsWith('/dashboard/analytics') ||
-    pathname?.startsWith('/portal/live') ||
-    pathname?.startsWith('/admin/sovereign-matrix')
+    pathname === '/signup' ||
+    pathname === '/welcome' ||
+    pathname === '/login' ||
+    pathname.startsWith('/dashboard/analytics') ||
+    pathname.startsWith('/portal') ||
+    pathname.startsWith('/client') ||
+    pathname.startsWith('/admin') ||
+    pathname.includes('/live')
   ) {
     return null;
   }

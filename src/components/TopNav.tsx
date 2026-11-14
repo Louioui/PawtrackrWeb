@@ -181,6 +181,188 @@ export function TopNav() {
     );
   }
 
+  // Pure Apple/Stripe-Grade Minimal Distraction-Free Header for Auth & Onboarding
+  if (pathname === '/signup' || pathname === '/welcome' || pathname === '/login') {
+    return (
+      <header className="sticky top-0 z-50 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6 lg:px-8">
+          {/* Brand Identity */}
+          <Link href="/" className="group flex items-center gap-3">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-periwinkle-500/40 bg-gradient-to-br from-periwinkle-500/25 via-obsidian-700 to-emerald-500/20 shadow-periwinkle-glow transition-transform group-hover:scale-105">
+              <Calendar className="h-5 w-5 text-periwinkle-400" />
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-obsidian-900" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-bold tracking-tight text-white">
+                  Pawtrackr
+                </span>
+                <span className="rounded-md border border-periwinkle-500/30 bg-periwinkle-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-periwinkle-300">
+                  Universal Web OS
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                {pathname === '/signup'
+                  ? 'Salon Registration & Provisioning'
+                  : pathname === '/welcome'
+                  ? 'Salon Setup & Activation'
+                  : 'Salon Workspace Sign In'}
+              </p>
+            </div>
+          </Link>
+
+          {/* Clean Right Actions */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            <Link
+              href="/"
+              className="text-xs text-zinc-400 hover:text-white transition"
+            >
+              Back to website
+            </Link>
+
+            {pathname === '/login' ? (
+              <div className="flex items-center gap-2">
+                <span className="hidden sm:inline text-xs text-zinc-400">
+                  New salon?
+                </span>
+                <Link
+                  href="/signup"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-periwinkle-400 px-3.5 py-2 text-xs font-bold text-obsidian-950 shadow-periwinkle-glow transition hover:bg-periwinkle-300 hover:scale-[1.02]"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-obsidian-950" />
+                  <span>Start Free Trial</span>
+                </Link>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="hidden sm:inline text-xs text-zinc-400">
+                  Already have an account?
+                </span>
+                <Link
+                  href="/login"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-obsidian-800/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:border-periwinkle-500/40 hover:bg-white/[0.05] hover:text-white"
+                >
+                  <span>Sign In</span>
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  // Pure Apple-Grade Customer-Facing Header for Public Booking & Client Portals
+  if (pathname?.startsWith('/portal') || pathname?.startsWith('/client')) {
+    const isBookingPortal = pathname.startsWith('/portal');
+    return (
+      <header className="sticky top-0 z-40 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+          {/* Brand Identity */}
+          <Link href="/" className="group flex items-center gap-3">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-periwinkle-500/40 bg-gradient-to-br from-periwinkle-500/25 via-obsidian-700 to-emerald-500/20 shadow-periwinkle-glow transition-transform group-hover:scale-105">
+              <Calendar className="h-5 w-5 text-periwinkle-400" />
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-obsidian-900" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-bold tracking-tight text-white">
+                  Pawtrackr
+                </span>
+                <span className="rounded-md border border-periwinkle-500/30 bg-periwinkle-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-periwinkle-300">
+                  Client Portal
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                {isBookingPortal
+                  ? 'Self-Service Online Booking'
+                  : 'Pet Parent Passport & Loyalty Rewards'}
+              </p>
+            </div>
+          </Link>
+
+          {/* Customer Navigation Links */}
+          <nav className="hidden sm:flex items-center gap-1 rounded-2xl border border-white/[0.07] bg-obsidian-800/80 p-1">
+            <Link
+              href="/portal/bespoke-grooming"
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                isBookingPortal
+                  ? 'border border-periwinkle-500/40 bg-periwinkle-500/15 text-white shadow-periwinkle-glow'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Globe className="h-3.5 w-3.5" />
+              <span>Online Booking</span>
+            </Link>
+            <Link
+              href="/client/cl-101"
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                !isBookingPortal
+                  ? 'border border-periwinkle-500/40 bg-periwinkle-500/15 text-white shadow-periwinkle-glow'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Heart className="h-3.5 w-3.5" />
+              <span>Pet Passport</span>
+            </Link>
+          </nav>
+
+          {/* Salon Staff Sign In */}
+          <div className="flex items-center gap-2.5">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-obsidian-800/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:border-periwinkle-500/40 hover:bg-white/[0.05] hover:text-white"
+            >
+              <span>Salon Staff Sign In</span>
+            </Link>
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  const isLive = isSourceBacked || (pathname?.includes('/live') ?? false);
+
+  const liveNavItems = [
+    {
+      href: '/dashboard/appointments/live',
+      label: 'Appointments',
+      sub: 'Live Schedule',
+      icon: Calendar,
+      active: pathname === '/dashboard/appointments/live',
+    },
+    {
+      href: '/dashboard/clients/live',
+      label: 'Clients & Pets',
+      sub: 'Roster & Records',
+      icon: Heart,
+      active: pathname === '/dashboard/clients/live',
+    },
+    {
+      href: '/dashboard/settings/live',
+      label: 'Settings',
+      sub: 'Services & Hours',
+      icon: ShieldCheck,
+      active: pathname === '/dashboard/settings/live',
+    },
+    {
+      href: '/dashboard/analytics/live',
+      label: 'Analytics',
+      sub: 'Revenue & Totals',
+      icon: Sparkles,
+      active: pathname === '/dashboard/analytics/live',
+    },
+    {
+      href: '/portal/live',
+      label: 'Public Catalog',
+      sub: 'Live Booking Page',
+      icon: Globe,
+      active: pathname?.startsWith('/portal/live'),
+    },
+  ];
+
+  const currentNavItems = isLive ? liveNavItems : navItems;
+
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">
@@ -201,14 +383,14 @@ export function TopNav() {
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400">
-                {isLiveAnalytics ? 'Authenticated staff analytics' : isLiveAppointments ? 'Authenticated staff appointments' : isLiveClients ? 'Authenticated staff roster' : isLiveSettings ? 'Authenticated salon configuration' : isLiveCatalog ? 'Published salon catalog' : 'Pet grooming workspace • Demo preview'}
+                {isLiveAnalytics ? 'Authenticated staff analytics' : isLiveAppointments ? 'Authenticated staff appointments' : isLiveClients ? 'Authenticated staff roster' : isLiveSettings ? 'Authenticated salon configuration' : isLiveCatalog ? 'Published salon catalog' : isLive ? 'Authenticated live salon workspace' : 'Pet grooming workspace • Demo preview'}
               </p>
             </div>
           </Link>
 
           {/* Portal Switcher */}
           <nav className="hidden xl:flex items-center gap-1 rounded-2xl border border-white/[0.07] bg-obsidian-800/90 p-1.5">
-            {navItems.map((item) => {
+            {currentNavItems.map((item) => {
               const Icon = item.icon;
               return (
                 <Link
@@ -293,7 +475,7 @@ export function TopNav() {
 
         {/* Mobile / Tablet Portal Switcher Bar */}
         <div className="flex xl:hidden overflow-x-auto border-t border-white/[0.06] bg-obsidian-800/80 px-3 py-2 gap-2">
-          {navItems.map((item) => {
+          {currentNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <Link

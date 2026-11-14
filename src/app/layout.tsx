@@ -5,14 +5,14 @@ import { SupportAndTourWidget } from '@/components/SupportAndTourWidget';
 import { DemoSwitcherBar } from '@/components/DemoSwitcherBar';
 
 export const metadata: Metadata = {
-  title: 'Pawtrackr Web — Pet Grooming Workspace Demo',
+  title: 'Pawtrackr — The All-In-One Pet Grooming Platform',
   description:
-    'Explore Pawtrackr’s pet grooming dashboard demo, booking flow, client portal, and checkout analytics.',
+    'Modern cloud operating system for pet salons, mobile groomers, and pet parents. Real-time scheduling, client portals, and atomic POS checkout.',
   manifest: '/manifest.json',
   openGraph: {
-    title: 'Pawtrackr Web — Pet Grooming Workspace Demo',
+    title: 'Pawtrackr — The All-In-One Pet Grooming Platform',
     description:
-      'Preview the Pawtrackr grooming dashboard, client portal, booking flow, and checkout analytics with sample data.',
+      'Modern cloud operating system for pet salons, mobile groomers, and pet parents. Real-time scheduling, client portals, and atomic POS checkout.',
     type: 'website',
   },
 };

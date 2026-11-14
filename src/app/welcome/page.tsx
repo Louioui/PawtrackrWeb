@@ -221,21 +221,7 @@ export default function WelcomeOnboardingPage() {
           </p>
         </div>
 
-        {/* Step Progress Bar & Environment Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-semibold text-emerald-400">Live Supabase Database Connected</span>
-          </div>
-          <button
-            type="button"
-            onClick={resetFreshStart}
-            className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-periwinkle-400/40 hover:text-white transition"
-          >
-            Clear Local Cache &amp; Reset
-          </button>
-        </div>
-
+        {/* Step Progress Bar */}
         <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900/80 p-4">
           <div className="flex items-center justify-between text-xs font-semibold">
             <button
@@ -610,6 +596,17 @@ export default function WelcomeOnboardingPage() {
         </>
       )}
     </div>
+
+        <div className="mt-8 text-center text-xs text-zinc-500">
+          Need to reset browser state?{' '}
+          <button
+            type="button"
+            onClick={resetFreshStart}
+            className="text-periwinkle-300 hover:text-white underline transition"
+          >
+            Clear local cache
+          </button>
+        </div>
       </div>
     </div>
   );

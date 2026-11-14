@@ -158,21 +158,7 @@ export default function SalonSignUpPage() {
   const salon = membership?.member && membership.active ? membership.salon : null;
 
   return <main className="mx-auto max-w-xl px-4 pb-20 pt-10 sm:px-6">
-    <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-3 mb-2">
-      <div className="flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-        <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">Live Supabase Cloud</p>
-      </div>
-      <button
-        type="button"
-        onClick={resetFreshStart}
-        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-periwinkle-400/40 hover:text-white transition"
-        title="Wipe demo localStorage sessions and start with fresh live email"
-      >
-        Reset Local Cache
-      </button>
-    </div>
-    <h1 className="mt-2 text-3xl font-extrabold text-white sm:text-4xl">{salon ? 'Your salon is ready' : 'Set up your salon'}</h1>
+    <h1 className="text-3xl font-extrabold text-white sm:text-4xl">{salon ? 'Your salon is ready' : 'Set up your salon'}</h1>
     {!salon && <p className="mt-3 text-sm text-zinc-400">Create an account, name your salon, and you can add services, groomers, and take bookings today. New salons start on a free trial; no card is collected here.</p>}
 
     {message && <p role="alert" className="mt-5 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">{message}</p>}
@@ -263,5 +249,16 @@ export default function SalonSignUpPage() {
       </ol>
       <button type="button" onClick={signOut} className="mt-6 text-sm text-periwinkle-300 hover:text-white">Sign out</button>
     </section>}
+
+    <div className="mt-12 border-t border-white/[0.08] pt-6 text-center text-xs text-zinc-500">
+      Testing with a new email address?{' '}
+      <button
+        type="button"
+        onClick={resetFreshStart}
+        className="text-periwinkle-300 hover:text-white underline transition"
+      >
+        Reset local browser cache
+      </button>
+    </div>
   </main>;
 }

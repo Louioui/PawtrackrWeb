@@ -897,7 +897,6 @@ export default function LandingPage() {
                 id={`stage-tab-${stage.key}`}
                 aria-selected={selected}
                 aria-controls={`stage-panel-${stage.key}`}
-                aria-label={`Step ${stage.stepNumber} ${stage.label}`}
                 type="button"
                 onClick={() => handleLifecycleStageSelect(stage)}
                 className={`p-3 rounded-xl border text-left transition ${
@@ -918,7 +917,6 @@ export default function LandingPage() {
           role="tabpanel"
           id={`stage-panel-${activeStage.key}`}
           aria-labelledby={`stage-tab-${activeStage.key}`}
-          aria-label={`Step ${activeStage.stepNumber} ${activeStage.label}`}
           className="p-5 rounded-2xl border border-white/[0.08] bg-obsidian-950 space-y-3"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3 text-xs">

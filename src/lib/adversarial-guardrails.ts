@@ -136,7 +136,7 @@ export {
   PROMPT_INJECTION_PATTERNS,
   type SanitizePetNotesResult,
   sanitizePetNotesForAI,
-} from './prompt-guardrails';
+} from './prompt-guardrails.ts';
 
 // ============================================================================
 // 3. CRYPTOGRAPHICALLY SIGNED SHORT LINKS (*.pawtrackr.live locked)

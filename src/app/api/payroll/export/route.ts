@@ -7,6 +7,14 @@ import {
   PayrollPeriodSummary,
   StaffPayrollLine,
 } from '@/lib/live-payroll';
+import {
+  generateNachaDirectDepositFile,
+  NachaStaffDepositItem,
+} from '@/lib/nacha-generator';
+import {
+  buildPayrollDisbursementJournalEntry,
+  formatGeneralLedgerCsv,
+} from '@/lib/general-ledger';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +38,7 @@ export async function GET(req: NextRequest) {
   const tipPoolMode = url.searchParams.get('tip_pool_mode') === 'bather_split' ? 'bather_split' : 'direct';
   const parsedPct = parseFloat(url.searchParams.get('bather_pool_pct') || '15.0');
   const batherPoolPct = Number.isFinite(parsedPct) ? Math.max(0, Math.min(100, parsedPct)) : 15.0;
-  const format = url.searchParams.get('format') === 'quickbooks' ? 'quickbooks' : 'gusto';
+  const requestedFormat = (url.searchParams.get('format') || 'gusto').toLowerCase();
 
   // Calculate live summary data via hardened RPC
   const { data: rawSummary, error: summaryError } = await auth.ctx.supabase.rpc('calculate_payroll_summary', {
@@ -79,20 +87,96 @@ export async function GET(req: NextRequest) {
     totalHouseRetainedCents: normalized.total_house_cents,
   };
 
-  const csvContent = format === 'quickbooks'
-    ? formatQuickBooksPayrollCsv(typedSummary)
-    : formatGustoPayrollCsv(typedSummary);
-
   const safeStart = periodStart.replace(/[^0-9-]/g, '');
   const safeEnd = periodEnd.replace(/[^0-9-]/g, '');
-  const filename = `pawtrackr-payroll-${format}-${safeStart}-to-${safeEnd}.csv`;
 
+  // 1. NACHA ACH Fixed-Width File Export
+  if (requestedFormat === 'nacha') {
+    const depositItems: NachaStaffDepositItem[] = typedSummary.staffLines.map((line, idx) => ({
+      staffId: line.staffId,
+      staffName: line.staffName,
+      // Default valid test routing number (Chase ABA 021000021) or sequence
+      routingNumber: '021000021',
+      accountNumber: `773900${padDigits(idx + 1, 4)}`,
+      accountType: 'checking',
+      amountCents: line.netPayoutCents,
+    }));
+
+    const nachaResult = generateNachaDirectDepositFile(depositItems, {
+      immediateDestinationRouting: '021000021',
+      immediateOriginEin: '123456789',
+      destinationBankName: 'JPMORGAN CHASE',
+      originSalonName: 'PAWTRACKR SALON',
+      companyId: '123456789',
+    });
+
+    return new NextResponse(nachaResult.nachaContent, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/plain; charset=us-ascii',
+        'Content-Disposition': `attachment; filename="pawtrackr-payroll-nacha-${safeStart}-to-${safeEnd}.ach"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
+  // 2. Dual-Entry General Ledger CSV Export (QuickBooks / Xero / Sage)
+  if (requestedFormat === 'general_ledger') {
+    const journalEntry = buildPayrollDisbursementJournalEntry({
+      entryNumber: `JE-PAY-${safeStart}`,
+      date: periodEnd,
+      periodStart,
+      periodEnd,
+      totalCommissionsCents: typedSummary.totalCommissionCents,
+      totalTipsCents: typedSummary.totalTipsCents,
+      totalPayoutCents: typedSummary.totalPayoutCents,
+    });
+
+    const glCsv = formatGeneralLedgerCsv({
+      periodStart,
+      periodEnd,
+      businessName: 'Pawtrackr Salon',
+      entries: [journalEntry],
+      totalDebitCents: journalEntry.totalDebitCents,
+      totalCreditCents: journalEntry.totalCreditCents,
+      isBalanced: journalEntry.isBalanced,
+    });
+
+    return new NextResponse(glCsv, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="pawtrackr-payroll-general-ledger-${safeStart}-to-${safeEnd}.csv"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
+  // 3. QuickBooks Payroll CSV
+  if (requestedFormat === 'quickbooks') {
+    const csvContent = formatQuickBooksPayrollCsv(typedSummary);
+    return new NextResponse(csvContent, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="pawtrackr-payroll-quickbooks-${safeStart}-to-${safeEnd}.csv"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
+  // 4. Gusto Payroll CSV (Default)
+  const csvContent = formatGustoPayrollCsv(typedSummary);
   return new NextResponse(csvContent, {
     status: 200,
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Disposition': `attachment; filename="pawtrackr-payroll-gusto-${safeStart}-to-${safeEnd}.csv"`,
       'Cache-Control': 'no-store',
     },
   });
+}
+
+function padDigits(num: number, width: number): string {
+  return String(num).padStart(width, '0');
 }

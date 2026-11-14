@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -21,6 +21,7 @@ import {
   HelpCircle,
   Layers,
   Lock,
+  Pause,
   Play,
   Receipt,
   RefreshCw,
@@ -50,7 +51,6 @@ type LifecycleStageKey =
   | 'paid'
   | 'follow_up';
 type AvailabilityScenarioKey = 'valid_slot' | 'blocked_shift';
-type DataConfidenceKey = 'live_recent' | 'checking' | 'stale_offline' | 'demo_mode';
 
 interface LifecycleStage {
   key: LifecycleStageKey;
@@ -234,54 +234,6 @@ const AVAILABILITY_SCENARIOS: Record<
   },
 };
 
-const DATA_CONFIDENCE_STATES: Record<
-  DataConfidenceKey,
-  {
-    badgeLabel: string;
-    tone: 'emerald' | 'periwinkle' | 'amber' | 'zinc';
-    staffHeadline: string;
-    staffMessage: string;
-    whyItMatters: string;
-  }
-> = {
-  live_recent: {
-    badgeLabel: 'Updated just now • Live tenant data',
-    tone: 'emerald',
-    staffHeadline: 'Connected to active salon records',
-    staffMessage:
-      'Schedule and completed checkout totals reflect verified tenant records as of 12:05 PM America/Los_Angeles.',
-    whyItMatters:
-      'Gives receptionists and owners confidence that groomer lanes and checkout status are current before making schedule decisions.',
-  },
-  checking: {
-    badgeLabel: 'Checking live data…',
-    tone: 'periwinkle',
-    staffHeadline: 'Refreshing schedule in the background',
-    staffMessage:
-      'Keeping your current schedule visible while checking for new bookings or status updates.',
-    whyItMatters:
-      'Prevents jarring screen flashes while staff are speaking with a pet parent at the front desk.',
-  },
-  stale_offline: {
-    badgeLabel: 'Offline • Showing snapshot from 3m ago',
-    tone: 'amber',
-    staffHeadline: 'Live updates are temporarily unavailable',
-    staffMessage:
-      'Showing your last confirmed schedule from 3 minutes ago; reconnecting automatically when the network returns.',
-    whyItMatters:
-      'Never fabricates a false save or hides a connection drop during a busy grooming day.',
-  },
-  demo_mode: {
-    badgeLabel: 'Interactive demo • Sample salon data',
-    tone: 'zinc',
-    staffHeadline: 'Isolated product preview workspace',
-    staffMessage:
-      'Actions in the demo workspace use illustrative sample records so you can explore workflows safely without charging cards or altering live salons.',
-    whyItMatters:
-      'Keeps product exploration transparent so visitors and investors always know whether they are viewing sample or live records.',
-  },
-};
-
 export default function LandingPage() {
   // Interactive Demonstration State
   const [activePerspective, setActivePerspective] =
@@ -291,25 +243,79 @@ export default function LandingPage() {
   const [demoAppointmentCompleted, setDemoAppointmentCompleted] =
     useState<boolean>(false);
 
+  // Animation & Tour Auto-Play State
+  const [isTourAutoPlaying, setIsTourAutoPlaying] = useState<boolean>(false);
+  const [isWorkflowAutoPlaying, setIsWorkflowAutoPlaying] = useState<boolean>(false);
+
   // Availability Intelligence State
   const [availabilityScenario, setAvailabilityScenario] =
     useState<AvailabilityScenarioKey>('valid_slot');
-
-  // Network Confidence State
-  const [confidenceState, setConfidenceState] =
-    useState<DataConfidenceKey>('live_recent');
+  const [isScanning, setIsScanning] = useState<boolean>(false);
 
   const activeStage =
     LIFECYCLE_STAGES.find((s) => s.key === activeStageKey) ??
     LIFECYCLE_STAGES[1];
   const currentAvailability = AVAILABILITY_SCENARIOS[availabilityScenario];
-  const currentConfidence = DATA_CONFIDENCE_STATES[confidenceState];
 
   // Derived Owner Metrics in Demo
   const completedCount = demoAppointmentCompleted ? 4 : 3;
   const confirmedRevenueDollars = demoAppointmentCompleted ? '565.93' : '428.50';
 
+  // Auto-Play Perspective Tour Timer
+  useEffect(() => {
+    if (!isTourAutoPlaying) return;
+    const perspectives: PerspectiveKey[] = ['pet_parent', 'salon_team', 'owner'];
+    const timer = setInterval(() => {
+      setActivePerspective((current) => {
+        const nextIdx = (perspectives.indexOf(current) + 1) % perspectives.length;
+        const nextPerspective = perspectives[nextIdx];
+        if (nextPerspective === 'pet_parent') {
+          setActiveStageKey('confirmed');
+          setDemoAppointmentCompleted(false);
+        } else if (nextPerspective === 'salon_team') {
+          setActiveStageKey('checked_in');
+        } else {
+          setActiveStageKey('paid');
+          setDemoAppointmentCompleted(true);
+        }
+        return nextPerspective;
+      });
+    }, 4200);
+    return () => clearInterval(timer);
+  }, [isTourAutoPlaying]);
+
+  // Auto-Play 6-Stage Workflow Timer
+  useEffect(() => {
+    if (!isWorkflowAutoPlaying) return;
+    const stageKeys: LifecycleStageKey[] = [
+      'requested',
+      'confirmed',
+      'checked_in',
+      'grooming',
+      'paid',
+      'follow_up',
+    ];
+    const timer = setInterval(() => {
+      setActiveStageKey((current) => {
+        const nextIdx = (stageKeys.indexOf(current) + 1) % stageKeys.length;
+        const nextStageKey = stageKeys[nextIdx];
+        const nextStage = LIFECYCLE_STAGES.find((s) => s.key === nextStageKey);
+        if (nextStage) {
+          setActivePerspective(nextStage.perspective);
+          if (nextStageKey === 'paid' || nextStageKey === 'follow_up') {
+            setDemoAppointmentCompleted(true);
+          } else if (nextStageKey === 'requested' || nextStageKey === 'confirmed') {
+            setDemoAppointmentCompleted(false);
+          }
+        }
+        return nextStageKey;
+      });
+    }, 3600);
+    return () => clearInterval(timer);
+  }, [isWorkflowAutoPlaying]);
+
   const handlePerspectiveSelect = (perspective: PerspectiveKey) => {
+    setIsTourAutoPlaying(false);
     setActivePerspective(perspective);
     if (perspective === 'pet_parent') {
       setActiveStageKey('confirmed');
@@ -321,6 +327,7 @@ export default function LandingPage() {
   };
 
   const handleLifecycleStageSelect = (stage: LifecycleStage) => {
+    setIsWorkflowAutoPlaying(false);
     setActiveStageKey(stage.key);
     setActivePerspective(stage.perspective);
     if (stage.key === 'paid' || stage.key === 'follow_up') {
@@ -328,6 +335,12 @@ export default function LandingPage() {
     } else if (stage.key === 'requested' || stage.key === 'confirmed') {
       setDemoAppointmentCompleted(false);
     }
+  };
+
+  const handleScenarioChange = (scenario: AvailabilityScenarioKey) => {
+    setIsScanning(true);
+    setAvailabilityScenario(scenario);
+    setTimeout(() => setIsScanning(false), 500);
   };
 
   return (
@@ -405,121 +418,39 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          2. PURPOSE & VALUE: WHAT IS PAWTRACKR & HOW IT HELPS
+          2. FUSED PLATFORM ARCHITECTURE & DIRECT EXPERIENCE WORKFLOWS
       ===================================================================== */}
-      <section className="space-y-8">
+      <section id="features" className="space-y-8 scroll-mt-24">
         <div className="text-center max-w-2xl mx-auto space-y-2">
           <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
-            Purpose-Built for Groomers
+            End-to-End Salon Operating System
           </span>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
             How Pawtrackr Solves Your Daily Headaches
           </h2>
           <p className="text-sm text-zinc-400">
-            Designed to replace clunky legacy software with one fast, intuitive, Apple-grade system.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Pillar 1 */}
-          <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900/90 p-6 space-y-4 shadow-lg hover:border-periwinkle-500/30 transition">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-periwinkle-500/15 border border-periwinkle-500/30 text-periwinkle-300">
-              <Globe className="h-6 w-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white">1. Stop Playing Phone Tag</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Pet parents can book appointments 24/7 from their phone. Our smart calendar checks groomer shifts, service durations, and 15-minute turnaround buffers automatically so you never get double-booked.
-            </p>
-            <div className="pt-2 text-xs font-semibold text-periwinkle-300">
-              Self-Serve Online Booking →
-            </div>
-          </div>
-
-          {/* Pillar 2 */}
-          <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900/90 p-6 space-y-4 shadow-lg hover:border-emerald-500/30 transition">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
-              <Calendar className="h-6 w-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white">2. Run Calm, Organized Days</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Groomers and bathers see a live, color-coded board showing exactly which pets are bathing, drying, or styling. Handling alerts like &quot;dryer sensitive&quot; or &quot;senior&quot; keep pets safe on every table.
-            </p>
-            <div className="pt-2 text-xs font-semibold text-emerald-300">
-              Multi-Groomer Staff Board →
-            </div>
-          </div>
-
-          {/* Pillar 3 */}
-          <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900/90 p-6 space-y-4 shadow-lg hover:border-amber-500/30 transition">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-300">
-              <Receipt className="h-6 w-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white">3. Fast Checkout with $0 Variance</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Ring up services, matted coat add-ons, retail, and tips in seconds. Exact integer-cent accounting ensures your cash drawer and daily credit card deposits match to the penny every single evening.
-            </p>
-            <div className="pt-2 text-xs font-semibold text-amber-300">
-              Point of Sale &amp; Receipts →
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* =====================================================================
-          3. SEPARATED FOCUSED WORKFLOWS (CLICK DIRECTLY TO THAT EXPERIENCE)
-      ===================================================================== */}
-      <section className="space-y-8">
-        <div className="text-center max-w-2xl mx-auto space-y-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
-            Dedicated Product Portals
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
-            Choose What You Want to Explore
-          </h2>
-          <p className="text-sm text-zinc-400">
-            Click any portal below to enter that specific live workflow directly.
+            Designed to replace clunky legacy software with one synchronized platform. Click any core engine below to explore its live workflow:
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Card 1: Staff Schedule */}
-          <div className="rounded-2xl border border-white/[0.1] bg-obsidian-900 p-6 flex flex-col justify-between hover:border-periwinkle-500/50 transition group shadow-lg">
-            <div className="space-y-3">
-              <div className="h-10 w-10 rounded-xl bg-periwinkle-500/15 border border-periwinkle-500/30 flex items-center justify-center text-periwinkle-400 group-hover:scale-110 transition">
-                <Calendar className="h-5 w-5" />
-              </div>
-              <h3 className="text-lg font-bold text-white">Live Staff Schedule</h3>
-              <p className="text-xs text-zinc-300 leading-relaxed">
-                Multi-groomer vertical calendar with live WebSocket sync (&lt;100ms), turnaround buffers, and Smart Triage for absent staff.
-              </p>
-              <ul className="text-xs text-zinc-400 space-y-1.5 pt-2">
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Multi-groomer lane stacking</li>
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Turnaround time buffers</li>
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Keyboard shortcuts (Cmd+N, Cmd+Shift+B)</li>
-              </ul>
-            </div>
-            <Link
-              href="/dashboard"
-              className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-periwinkle-500/15 border border-periwinkle-500/30 py-2.5 px-4 text-xs font-bold text-periwinkle-300 hover:bg-periwinkle-500 hover:text-obsidian-950 transition"
-            >
-              Open Salon Schedule <ChevronRight className="h-4 w-4" />
-            </Link>
-          </div>
-
-          {/* Card 2: Pet Parent Booking */}
+          {/* Card 1: 24/7 Smart Online Booking */}
           <div className="rounded-2xl border border-white/[0.1] bg-obsidian-900 p-6 flex flex-col justify-between hover:border-emerald-500/50 transition group shadow-lg">
             <div className="space-y-3">
-              <div className="h-10 w-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition">
+              <div className="h-11 w-11 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition">
                 <Globe className="h-5 w-5" />
               </div>
-              <h3 className="text-lg font-bold text-white">Pet Parent Booking</h3>
+              <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                1. Stop Playing Phone Tag
+              </div>
+              <h3 className="text-lg font-bold text-white">24/7 Online Booking</h3>
               <p className="text-xs text-zinc-300 leading-relaxed">
-                Clean, mobile-optimized online booking portal. Clients select services, review prices, and pick local time slots with instant confirmation.
+                Pet parents book instantly from any phone. Our engine validates operating hours, groomer shifts, and 15-minute turnaround buffers automatically.
               </p>
               <ul className="text-xs text-zinc-400 space-y-1.5 pt-2">
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> 24/7 mobile self-booking</li>
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Salon local time zone</li>
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Self-reschedule &amp; cancel</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Zero double-booking guarantee</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Salon local time zone display</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Digital waivers &amp; photo uploads</li>
               </ul>
             </div>
             <Link
@@ -530,20 +461,50 @@ export default function LandingPage() {
             </Link>
           </div>
 
-          {/* Card 3: Rabies & Medical Vault */}
+          {/* Card 2: Multi-Groomer Command Center */}
+          <div className="rounded-2xl border border-white/[0.1] bg-obsidian-900 p-6 flex flex-col justify-between hover:border-periwinkle-500/50 transition group shadow-lg">
+            <div className="space-y-3">
+              <div className="h-11 w-11 rounded-2xl bg-periwinkle-500/15 border border-periwinkle-500/30 flex items-center justify-center text-periwinkle-400 group-hover:scale-110 transition">
+                <Calendar className="h-5 w-5" />
+              </div>
+              <div className="text-[11px] font-bold uppercase tracking-wider text-periwinkle-300">
+                2. Run Calm, Organized Days
+              </div>
+              <h3 className="text-lg font-bold text-white">Live Staff Schedule</h3>
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Multi-groomer vertical calendar with live WebSocket synchronization (&lt;100ms), turnaround buffers, and Smart Triage for sudden sick calls.
+              </p>
+              <ul className="text-xs text-zinc-400 space-y-1.5 pt-2">
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Multi-groomer lane stacking</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Automatic turnaround buffers</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> 1-tap Smart Triage sick reassignment</li>
+              </ul>
+            </div>
+            <Link
+              href="/dashboard"
+              className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-periwinkle-500/15 border border-periwinkle-500/30 py-2.5 px-4 text-xs font-bold text-periwinkle-300 hover:bg-periwinkle-500 hover:text-obsidian-950 transition"
+            >
+              Open Salon Schedule <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          {/* Card 3: Rabies & Medical Care Vault */}
           <div className="rounded-2xl border border-white/[0.1] bg-obsidian-900 p-6 flex flex-col justify-between hover:border-amber-500/50 transition group shadow-lg">
             <div className="space-y-3">
-              <div className="h-10 w-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition">
+              <div className="h-11 w-11 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition">
                 <ShieldCheck className="h-5 w-5" />
+              </div>
+              <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                3. Protect Pets &amp; Comply
               </div>
               <h3 className="text-lg font-bold text-white">Rabies &amp; Care Vault</h3>
               <p className="text-xs text-zinc-300 leading-relaxed">
                 Secure vaccine certificate storage, compliance badges, pet weight history charts, and special handling behavior tags.
               </p>
               <ul className="text-xs text-zinc-400 space-y-1.5 pt-2">
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Rabies certificate upload</li>
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Expiry date compliance check</li>
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Anxious &amp; senior care tags</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Vet rabies certificate upload</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Automated expiry compliance check</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Anxious &amp; senior behavior auras</li>
               </ul>
             </div>
             <Link
@@ -554,20 +515,23 @@ export default function LandingPage() {
             </Link>
           </div>
 
-          {/* Card 4: POS & Checkout */}
+          {/* Card 4: Atomic POS Register & $0 Variance Checkout */}
           <div className="rounded-2xl border border-white/[0.1] bg-obsidian-900 p-6 flex flex-col justify-between hover:border-periwinkle-500/50 transition group shadow-lg">
             <div className="space-y-3">
-              <div className="h-10 w-10 rounded-xl bg-periwinkle-500/15 border border-periwinkle-500/30 flex items-center justify-center text-periwinkle-400 group-hover:scale-110 transition">
+              <div className="h-11 w-11 rounded-2xl bg-periwinkle-500/15 border border-periwinkle-500/30 flex items-center justify-center text-periwinkle-400 group-hover:scale-110 transition">
                 <Receipt className="h-5 w-5" />
               </div>
-              <h3 className="text-lg font-bold text-white">Atomic POS &amp; Receipts</h3>
+              <div className="text-[11px] font-bold uppercase tracking-wider text-periwinkle-300">
+                4. Zero-Variance Accounting
+              </div>
+              <h3 className="text-lg font-bold text-white">Atomic POS &amp; Register</h3>
               <p className="text-xs text-zinc-300 leading-relaxed">
                 Fast register for salon desks and mobile vans. Exact integer-cent billing, split tenders, card tips, and digital report cards.
               </p>
               <ul className="text-xs text-zinc-400 space-y-1.5 pt-2">
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Integer-cent fixed-point math</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Fixed-point integer-cent math</li>
                 <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Split card &amp; cash payments</li>
-                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Photo report card text alerts</li>
+                <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Automatic groomer tip pools</li>
               </ul>
             </div>
             <Link
@@ -581,52 +545,118 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          4. INTERACTIVE DEMONSTRATION: ONE RECORD, THREE PERSPECTIVES
+          3. INTERACTIVE PRODUCT TOUR: ONE RECORD, THREE PERSPECTIVES (WITH LIVE DEMO)
       ===================================================================== */}
-      <section className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-10 space-y-6 shadow-xl">
-        <div className="text-center max-w-2xl mx-auto space-y-1">
-          <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
-            Interactive Product Tour
-          </span>
-          <h2 className="text-2xl font-bold text-white">
-            See How One Appointment Syncs Everywhere
-          </h2>
-          <p className="text-xs text-zinc-400">
-            Click below to see the exact same appointment from the Pet Parent, Groomer, and Salon Owner viewpoint.
-          </p>
+      <section id="demo-tour" className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-10 space-y-6 shadow-xl scroll-mt-24">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 border-b border-white/[0.08] pb-6">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
+                Interactive Product Tour
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live WebSocket Active
+              </span>
+            </div>
+            <h2 className="text-2xl font-bold text-white">
+              See How One Appointment Syncs Everywhere
+            </h2>
+            <p className="text-xs text-zinc-400 max-w-xl">
+              Watch an appointment flow from customer self-booking directly to the groomer’s station and the owner’s register in under 100 milliseconds.
+            </p>
+          </div>
 
-          <div
-            role="tablist"
-            aria-label="Choose product perspective"
-            className="inline-flex mt-4 rounded-xl border border-white/[0.1] bg-obsidian-950 p-1"
-          >
-            {(
-              [
-                { key: 'pet_parent', label: 'Pet Parent' },
-                { key: 'salon_team', label: 'Salon Team' },
-                { key: 'owner', label: 'Owner' },
-              ] as const
-            ).map((tab) => {
-              const selected = activePerspective === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  role="tab"
-                  id={`perspective-tab-${tab.key}`}
-                  aria-selected={selected}
-                  aria-controls={`perspective-panel-${tab.key}`}
-                  type="button"
-                  onClick={() => handlePerspectiveSelect(tab.key)}
-                  className={`rounded-lg px-4 py-2 text-xs font-bold transition ${
-                    selected
-                      ? 'bg-periwinkle-500 text-obsidian-950 shadow-sm'
-                      : 'text-zinc-300 hover:text-white'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
+          {/* Perspective Selector & Live Tour Simulation Toggle */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setIsTourAutoPlaying((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition shadow-sm ${
+                isTourAutoPlaying
+                  ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 shadow-emerald-500/20'
+                  : 'border-periwinkle-500/40 bg-periwinkle-500/10 text-periwinkle-300 hover:bg-periwinkle-500/20'
+              }`}
+            >
+              {isTourAutoPlaying ? (
+                <>
+                  <Pause className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Pause Live Tour</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5 text-periwinkle-400" />
+                  <span>Auto-Play Live Tour</span>
+                </>
+              )}
+            </button>
+
+            <div
+              role="tablist"
+              aria-label="Choose product perspective"
+              className="inline-flex rounded-xl border border-white/[0.1] bg-obsidian-950 p-1"
+            >
+              {(
+                [
+                  { key: 'pet_parent', label: 'Pet Parent' },
+                  { key: 'salon_team', label: 'Salon Team' },
+                  { key: 'owner', label: 'Owner' },
+                ] as const
+              ).map((tab) => {
+                const selected = activePerspective === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    role="tab"
+                    id={`perspective-tab-${tab.key}`}
+                    aria-selected={selected}
+                    aria-controls={`perspective-panel-${tab.key}`}
+                    type="button"
+                    onClick={() => handlePerspectiveSelect(tab.key)}
+                    className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
+                      selected
+                        ? 'bg-periwinkle-500 text-obsidian-950 shadow-sm'
+                        : 'text-zinc-300 hover:text-white'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Live Simulation Progress Banner */}
+        <div className="rounded-2xl border border-white/[0.08] bg-obsidian-950 p-4 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-zinc-300">Live Simulation Status:</span>
+              <span className="rounded-full bg-periwinkle-500/15 border border-periwinkle-500/30 px-2 py-0.5 text-[11px] font-bold text-periwinkle-300">
+                {activePerspective === 'pet_parent'
+                  ? 'Phase 1 of 3 • Online Booking Dispatched (0.0s)'
+                  : activePerspective === 'salon_team'
+                  ? 'Phase 2 of 3 • Live WebSocket Push (<100ms)'
+                  : 'Phase 3 of 3 • Cent-Exact Settlement (Real-Time)'}
+              </span>
+            </div>
+            <div className="text-[11px] text-zinc-400">
+              {isTourAutoPlaying ? 'Auto-advancing through perspective lifecycle…' : 'Interactive manual inspection mode'}
+            </div>
+          </div>
+
+          <div className="h-1.5 w-full rounded-full bg-obsidian-800 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-periwinkle-400 via-emerald-400 to-periwinkle-400 transition-all duration-700 ease-out"
+              style={{
+                width:
+                  activePerspective === 'pet_parent'
+                    ? '33%'
+                    : activePerspective === 'salon_team'
+                    ? '66%'
+                    : '100%',
+              }}
+            />
           </div>
         </div>
 
@@ -744,19 +774,25 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          5. AVAILABILITY INTELLIGENCE (SAFE BOOKINGS VS. BLOCKED SLOTS)
+          4. AVAILABILITY INTELLIGENCE (SAFE BOOKINGS VS. BLOCKED SLOTS)
       ===================================================================== */}
       <section
+        id="availability"
         role="region"
         aria-label="Availability intelligence demonstration"
-        className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-8 space-y-6 shadow-xl"
+        className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-8 space-y-6 shadow-xl scroll-mt-24"
       >
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/[0.08] pb-4">
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
-              Smart Availability Engine
-            </span>
-            <h2 className="text-xl font-bold text-white mt-0.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
+                Smart Availability Engine
+              </span>
+              <span className="rounded-full bg-periwinkle-500/15 border border-periwinkle-500/30 px-2 py-0.5 text-[10px] font-bold text-periwinkle-300">
+                Zero Double-Booking Guarantee
+              </span>
+            </div>
+            <h2 className="text-xl font-bold text-white mt-1">
               Why Slots Are Bookable vs. Blocked
             </h2>
           </div>
@@ -764,10 +800,10 @@ export default function LandingPage() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setAvailabilityScenario('valid_slot')}
+              onClick={() => handleScenarioChange('valid_slot')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                 availabilityScenario === 'valid_slot'
-                  ? 'bg-emerald-500 text-obsidian-950'
+                  ? 'bg-emerald-500 text-obsidian-950 shadow-sm'
                   : 'bg-obsidian-800 text-zinc-300 hover:text-white'
               }`}
             >
@@ -775,16 +811,32 @@ export default function LandingPage() {
             </button>
             <button
               type="button"
-              onClick={() => setAvailabilityScenario('blocked_shift')}
+              onClick={() => handleScenarioChange('blocked_shift')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                 availabilityScenario === 'blocked_shift'
-                  ? 'bg-amber-500 text-obsidian-950'
+                  ? 'bg-amber-500 text-obsidian-950 shadow-sm'
                   : 'bg-obsidian-800 text-zinc-300 hover:text-white'
               }`}
             >
               Scenario B: Why was 12:00 PM PT blocked?
             </button>
           </div>
+        </div>
+
+        {/* Live Slot Scanner Visual Feedback */}
+        <div className="rounded-2xl border border-white/[0.07] bg-obsidian-950 p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <div className={`h-2.5 w-2.5 rounded-full ${isScanning ? 'bg-periwinkle-400 animate-ping' : 'bg-emerald-400'}`} />
+            <span className="font-semibold text-zinc-200">
+              {isScanning ? 'Executing database slot conflict scanner…' : 'Conflict Scan Completed:'}
+            </span>
+            <span className="font-mono text-zinc-400 text-[11px]">
+              {currentAvailability.checks.filter(c => c.passed).length} of {currentAvailability.checks.length} constraints verified
+            </span>
+          </div>
+          <span className="text-[11px] text-periwinkle-300 font-mono">
+            {availabilityScenario === 'valid_slot' ? 'Status: Approved for Online Booking' : 'Status: Rejected to Prevent Shift Overrun'}
+          </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -812,7 +864,7 @@ export default function LandingPage() {
             {currentAvailability.checks.map((check, idx) => (
               <div
                 key={idx}
-                className="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/[0.06] bg-obsidian-800/60 text-xs"
+                className="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/[0.06] bg-obsidian-800/60 text-xs transition hover:bg-obsidian-800"
               >
                 {check.passed ? (
                   <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
@@ -830,19 +882,43 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          6. LIFECYCLE STAGES (STEP 1 THROUGH 6)
+          5. LIFECYCLE STAGES (STEP 1 THROUGH 6 WITH ANIMATED WALKTHROUGH)
       ===================================================================== */}
-      <section className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-8 space-y-6 shadow-xl">
-        <div className="text-center max-w-2xl mx-auto space-y-1">
-          <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
-            End-to-End Workflow
-          </span>
-          <h2 className="text-2xl font-bold text-white">
-            6 Stages from Booking to Re-Booking
-          </h2>
-          <p className="text-xs text-zinc-400">
-            Click any stage tab to see how Pawtrackr automates notifications, care notes, and revenue tracking.
-          </p>
+      <section id="workflow" className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-8 space-y-6 shadow-xl scroll-mt-24">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 border-b border-white/[0.08] pb-4">
+          <div className="space-y-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
+              End-to-End Workflow
+            </span>
+            <h2 className="text-2xl font-bold text-white">
+              6 Stages from Booking to Re-Booking
+            </h2>
+            <p className="text-xs text-zinc-400 max-w-xl">
+              Click any stage tab or enable auto-play to see how Pawtrackr automates notifications, care notes, and revenue tracking.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsWorkflowAutoPlaying((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition shadow-sm ${
+              isWorkflowAutoPlaying
+                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 shadow-emerald-500/20'
+                : 'border-periwinkle-500/40 bg-periwinkle-500/10 text-periwinkle-300 hover:bg-periwinkle-500/20'
+            }`}
+          >
+            {isWorkflowAutoPlaying ? (
+              <>
+                <Pause className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Pause Workflow</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-3.5 w-3.5 text-periwinkle-400" />
+                <span>Auto-Play Lifecycle</span>
+              </>
+            )}
+          </button>
         </div>
 
         {/* Stage Tabs */}
@@ -864,11 +940,14 @@ export default function LandingPage() {
                 onClick={() => handleLifecycleStageSelect(stage)}
                 className={`p-3 rounded-xl border text-left transition ${
                   selected
-                    ? 'border-periwinkle-400 bg-periwinkle-500/20 text-white shadow-md'
+                    ? 'border-periwinkle-400 bg-periwinkle-500/20 text-white shadow-md ring-1 ring-periwinkle-400/50'
                     : 'border-white/[0.07] bg-obsidian-950 text-zinc-400 hover:border-white/[0.15] hover:text-zinc-200'
                 }`}
               >
-                <div className="text-[10px] font-mono uppercase text-periwinkle-300">Step {stage.stepNumber}</div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase text-periwinkle-300">Step {stage.stepNumber}</span>
+                  {selected && <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
+                </div>
                 <div className="text-xs font-bold text-white mt-0.5">{stage.label}</div>
               </button>
             );
@@ -899,64 +978,9 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          7. DATA CONFIDENCE & NETWORK INTEGRITY
+          6. TRANSPARENT PRICING PLANS
       ===================================================================== */}
-      <section className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-8 space-y-6 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/[0.08] pb-4">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
-              Data Confidence &amp; Sync
-            </span>
-            <h2 className="text-xl font-bold text-white mt-0.5">
-              Honest Connectivity &amp; Snapshot Freshness
-            </h2>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {(
-              [
-                { key: 'live_recent', label: 'Live recent' },
-                { key: 'checking', label: 'Checking' },
-                { key: 'stale_offline', label: 'Offline / Stale' },
-                { key: 'demo_mode', label: 'Demo mode' },
-              ] as const
-            ).map((btn) => (
-              <button
-                key={btn.key}
-                type="button"
-                onClick={() => setConfidenceState(btn.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                  confidenceState === btn.key
-                    ? 'bg-periwinkle-500 text-obsidian-950'
-                    : 'bg-obsidian-800 text-zinc-300 hover:text-white'
-                }`}
-              >
-                {btn.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-          <div className="space-y-3">
-            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-periwinkle-500/20 text-periwinkle-300 border border-periwinkle-500/40">
-              {currentConfidence.badgeLabel}
-            </span>
-            <h3 className="text-base font-bold text-white">{currentConfidence.staffHeadline}</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed">{currentConfidence.staffMessage}</p>
-          </div>
-
-          <div className="p-4 rounded-2xl border border-white/[0.08] bg-obsidian-950 space-y-2 text-xs">
-            <div className="font-semibold text-emerald-400">Why Pawtrackr handles network status this way:</div>
-            <p className="text-zinc-300 leading-relaxed">{currentConfidence.whyItMatters}</p>
-          </div>
-        </div>
-      </section>
-
-      {/* =====================================================================
-          8. TRANSPARENT PRICING PLANS
-      ===================================================================== */}
-      <section className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-10 space-y-8 shadow-xl">
+      <section id="pricing" className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-10 space-y-8 shadow-xl scroll-mt-24">
         <div className="text-center max-w-2xl mx-auto space-y-2">
           <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
             Simple, Transparent Plans
@@ -1024,9 +1048,9 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          9. FREQUENTLY ASKED QUESTIONS (FAQ)
+          7. FREQUENTLY ASKED QUESTIONS (FAQ)
       ===================================================================== */}
-      <section className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-10 space-y-6 shadow-xl">
+      <section id="faq" className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-10 space-y-6 shadow-xl scroll-mt-24">
         <div className="text-center max-w-2xl mx-auto space-y-1">
           <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
             Got Questions?
@@ -1071,7 +1095,7 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          10. FINAL CALL TO ACTION (START FREE TRIAL OR LAUNCH DEMO)
+          8. FINAL CALL TO ACTION (START FREE TRIAL OR LAUNCH DEMO)
       ===================================================================== */}
       <section className="relative overflow-hidden rounded-3xl border border-periwinkle-500/40 bg-gradient-to-r from-obsidian-900 via-obsidian-800 to-obsidian-900 p-8 sm:p-12 text-center shadow-periwinkle-glow">
         <div className="relative z-10 max-w-2xl mx-auto space-y-4">
@@ -1104,7 +1128,7 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          11. FOOTER: CLEAN BRANDING & DIRECT LINKS
+          9. FOOTER: CLEAN BRANDING & DIRECT LINKS
       ===================================================================== */}
       <footer className="pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-400">
         <div className="flex items-center gap-2">

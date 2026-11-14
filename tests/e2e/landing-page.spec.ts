@@ -70,7 +70,7 @@ test('front page availability intelligence explains why a booking fits or is blo
   );
 });
 
-test('front page data confidence states and lifecycle stages are interactive and accessible at mobile and desktop widths', async ({
+test('front page interactive tour, animated walkthrough, and lifecycle stages are interactive and accessible at mobile and desktop widths', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -87,11 +87,11 @@ test('front page data confidence states and lifecycle stages are interactive and
     page.getByRole('tabpanel', { name: /Step 5.*Paid/i })
   ).toContainText('Cent-exact checkout updates daily revenue and drawer totals');
 
-  // Data confidence state toggle
-  await page.getByRole('button', { name: 'Offline / Stale' }).click();
-  await expect(
-    page.getByText('Offline • Showing snapshot from 3m ago')
-  ).toBeVisible();
+  // Interactive tour auto-play simulation controls
+  const tourButton = page.getByRole('button', { name: /Auto-Play Live Tour/i });
+  await expect(tourButton).toBeVisible();
+  await tourButton.click();
+  await expect(page.getByRole('button', { name: /Pause Live Tour/i })).toBeVisible();
 
   // Automated WCAG 2.1 AA audit on mobile viewport
   const mobileAxe = await new AxeBuilder({ page })

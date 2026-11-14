@@ -47,7 +47,7 @@ export function SupportAndTourWidget() {
   const [feedbackText, setFeedbackText] = useState('');
   const [sentSupport, setSentSupport] = useState(false);
 
-  if (pathname?.startsWith('/admin/sovereign-matrix')) {
+  if (pathname === '/' || pathname?.startsWith('/admin/sovereign-matrix')) {
     return null;
   }
 

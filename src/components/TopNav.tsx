@@ -94,6 +94,93 @@ export function TopNav() {
     return null;
   }
 
+  // Pure Apple-Grade B2B Marketing Navigation for the Landing Page
+  if (pathname === '/') {
+    return (
+      <header className="sticky top-0 z-50 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6 lg:px-8">
+          {/* Brand Identity */}
+          <Link href="/" className="group flex items-center gap-3">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-periwinkle-500/40 bg-gradient-to-br from-periwinkle-500/25 via-obsidian-700 to-emerald-500/20 shadow-periwinkle-glow transition-transform group-hover:scale-105">
+              <Calendar className="h-5 w-5 text-periwinkle-400" />
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-obsidian-900" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-bold tracking-tight text-white">
+                  Pawtrackr
+                </span>
+                <span className="rounded-md border border-periwinkle-500/30 bg-periwinkle-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-periwinkle-300">
+                  Universal Web OS
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                The All-In-One Pet Grooming Platform
+              </p>
+            </div>
+          </Link>
+
+          {/* Marketing Navigation Links */}
+          <nav className="hidden md:flex items-center gap-1 rounded-2xl border border-white/[0.07] bg-obsidian-800/60 p-1 backdrop-blur-md">
+            <a
+              href="#features"
+              className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              Features
+            </a>
+            <a
+              href="#demo-tour"
+              className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              Interactive Tour
+            </a>
+            <a
+              href="#availability"
+              className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              Availability Engine
+            </a>
+            <a
+              href="#workflow"
+              className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              Workflow
+            </a>
+            <a
+              href="#pricing"
+              className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              Pricing
+            </a>
+            <a
+              href="#faq"
+              className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              FAQ
+            </a>
+          </nav>
+
+          {/* Action Buttons: Sign In + Start Free Trial */}
+          <div className="flex items-center gap-2.5">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-obsidian-800/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:border-periwinkle-500/40 hover:bg-white/[0.05] hover:text-white"
+            >
+              <span>Sign In</span>
+            </Link>
+            <Link
+              href="/welcome"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-periwinkle-400 px-4 py-2 text-xs font-bold text-obsidian-950 shadow-periwinkle-glow transition hover:bg-periwinkle-300 hover:scale-[1.02]"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-obsidian-950" />
+              <span>Start Free Trial</span>
+            </Link>
+          </div>
+        </div>
+      </header>
+    );
+  }
+
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">

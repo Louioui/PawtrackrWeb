@@ -378,20 +378,28 @@ export default function LandingPage() {
           {/* Primary Action CTAs */}
           <div className="pt-3 flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/dashboard"
+              href="/welcome"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 rounded-2xl bg-periwinkle-500 px-8 py-4 text-base font-bold text-obsidian-950 shadow-periwinkle-glow transition hover:bg-periwinkle-400"
             >
-              <Command className="h-5 w-5" />
-              Launch Interactive Demo
+              <Sparkles className="h-5 w-5" />
+              Start 14-Day Free Trial
               <ArrowRight className="h-4 w-4" />
             </Link>
 
             <Link
-              href="/welcome"
+              href="/portal/live"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl border border-white/[0.14] bg-obsidian-800/80 px-7 py-4 text-base font-semibold text-white transition hover:border-periwinkle-500/50 hover:bg-obsidian-700"
             >
-              <Sparkles className="h-5 w-5 text-periwinkle-400" />
-              Start 14-Day Free Trial
+              <Calendar className="h-5 w-5 text-periwinkle-400" />
+              Book as Pet Parent
+            </Link>
+
+            <Link
+              href="/login"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-6 py-4 text-base font-medium text-zinc-300 transition hover:border-white/20 hover:text-white"
+            >
+              <Lock className="h-4 w-4 text-zinc-400" />
+              Staff Sign In
             </Link>
           </div>
 
@@ -454,7 +462,7 @@ export default function LandingPage() {
               </ul>
             </div>
             <Link
-              href="/portal/bespoke-grooming"
+              href="/portal/live"
               className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 py-2.5 px-4 text-xs font-bold text-emerald-300 hover:bg-emerald-500 hover:text-obsidian-950 transition"
             >
               Open Client Booking Portal <ChevronRight className="h-4 w-4" />
@@ -481,7 +489,7 @@ export default function LandingPage() {
               </ul>
             </div>
             <Link
-              href="/dashboard"
+              href="/dashboard/appointments/live"
               className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-periwinkle-500/15 border border-periwinkle-500/30 py-2.5 px-4 text-xs font-bold text-periwinkle-300 hover:bg-periwinkle-500 hover:text-obsidian-950 transition"
             >
               Open Salon Schedule <ChevronRight className="h-4 w-4" />
@@ -1117,11 +1125,11 @@ export default function LandingPage() {
               Start Free Trial <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
-              href="/dashboard"
+              href="/login"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl border border-white/[0.15] bg-obsidian-900 px-6 py-3.5 text-sm font-semibold text-white hover:bg-obsidian-800 transition"
             >
-              <Command className="h-4 w-4 text-periwinkle-400" />
-              Launch Interactive Demo
+              <Lock className="h-4 w-4 text-periwinkle-400" />
+              Staff Sign In
             </Link>
           </div>
         </div>

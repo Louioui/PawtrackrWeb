@@ -34,7 +34,10 @@ export default async function LiveSalonCatalogPage({ params }: { params: Promise
   const canBook = bookable.length > 0 && services.timeZone !== null && services.operatingHours !== null;
 
   return <main className="mx-auto max-w-4xl px-4 pb-20 pt-10 sm:px-6">
-    <Link href="/portal/live" className="text-sm text-periwinkle-300 hover:text-white">← All live salons</Link>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <Link href="/portal/live" className="text-sm text-periwinkle-300 hover:text-white">← All live salons</Link>
+      <Link href={`/portal/live/${salon.slug}/manage`} className="text-sm text-periwinkle-300 hover:text-white">Already booked? Manage appointment →</Link>
+    </div>
     <header className="mt-7"><p className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">Published service catalog</p><h1 className="mt-2 text-3xl font-extrabold text-white sm:text-4xl">{salon.name}</h1>{salon.city_state && <p className="mt-2 text-sm text-zinc-400">{salon.city_state}</p>}</header>
     <section className="glass-card mt-8 p-5 sm:p-6" aria-labelledby="packages-heading"><h2 id="packages-heading" className="text-xl font-bold text-white">Grooming services</h2>
       {services.packages.length ? <ul className="mt-4 divide-y divide-white/10">{services.packages.map((service, index) => <li key={`${service.name}-${index}`} className="flex flex-wrap justify-between gap-3 py-4"><div><h3 className="font-semibold text-zinc-100">{service.name}</h3>{service.description && <p className="mt-1 text-sm text-zinc-400">{service.description}</p>}{service.durationMinutes && <p className="mt-1 text-xs text-zinc-500">About {service.durationMinutes} minutes</p>}</div>{service.price !== null && <span className="font-mono font-semibold text-white">{money(service.price)}</span>}</li>)}</ul>

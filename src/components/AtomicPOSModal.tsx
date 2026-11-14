@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   CreditCard,
   DollarSign,
+  Layers,
   Lock,
   Receipt,
   ShieldCheck,
@@ -27,6 +28,8 @@ import {
   formatCents,
   formatCurrency,
   toCents,
+  validateSplitTenders,
+  SplitTenderItem,
 } from '@/lib/pos-math';
 import { BehaviorAuraBadge } from './BehaviorAuraBadge';
 import { parseDemoCheckoutResponse } from '@/lib/demo-checkout-response';
@@ -67,10 +70,37 @@ export function AtomicPOSModal({
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod>('apple_pay');
   const [cashTendered, setCashTendered] = useState<string>('200.00');
+  const [splitTenders, setSplitTenders] = useState<{
+    cash: string;
+    card: string;
+    giftCard: string;
+    accountCredit: string;
+  }>({
+    cash: '',
+    card: '',
+    giftCard: '',
+    accountCredit: '',
+  });
+  const [recoveredIntent, setRecoveredIntent] = useState<boolean>(false);
   const [showQrPayPass, setShowQrPayPass] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  // Check for prior incomplete checkout intent from storage outbox
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pawtrackr_pos_checkout_intent');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.visit_id === visit.id) {
+          setRecoveredIntent(true);
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [visit.id]);
 
   const selectedPackage = useMemo(() => {
     return (
@@ -116,6 +146,19 @@ export function AtomicPOSModal({
     return Math.max(0, tenderedCents - breakdown.totalCents);
   }, [paymentMethod, cashTendered, breakdown.totalCents]);
 
+  const splitValidation = useMemo(() => {
+    if (paymentMethod !== 'split') {
+      return { isValid: true, totalTenderedCents: breakdown.totalCents, varianceCents: 0 };
+    }
+    const items: SplitTenderItem[] = [
+      { method: 'cash', amountCents: toCents(parseFloat(splitTenders.cash) || 0) },
+      { method: 'credit_card', amountCents: toCents(parseFloat(splitTenders.card) || 0) },
+      { method: 'gift_card', amountCents: toCents(parseFloat(splitTenders.giftCard) || 0) },
+      { method: 'account_credit', amountCents: toCents(parseFloat(splitTenders.accountCredit) || 0) },
+    ];
+    return validateSplitTenders(items, breakdown.totalCents);
+  }, [paymentMethod, splitTenders, breakdown.totalCents]);
+
   const toggleAddon = (id: string) => {
     setSelectedAddonIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
@@ -123,13 +166,39 @@ export function AtomicPOSModal({
   };
 
   const handleAtomicCommit = async () => {
+    if (paymentMethod === 'split' && !splitValidation.isValid) {
+      setCheckoutError(
+        `Split tenders must match final total (${formatCents(breakdown.totalCents)}) exactly to zero cents.`
+      );
+      return;
+    }
     setCheckoutError(null);
     setIsProcessing(true);
+
+    const idempotencyKey = crypto.randomUUID();
+    const checkoutIntent = {
+      idempotency_key: idempotencyKey,
+      business_id: visit.business_id,
+      visit_id: visit.id,
+      total_cents: breakdown.totalCents,
+      payment_method: paymentMethod,
+      timestamp: Date.now(),
+    };
+    try {
+      localStorage.setItem('pawtrackr_pos_checkout_intent', JSON.stringify(checkoutIntent));
+    } catch {
+      // Ignore local storage write errors
+    }
+
     try {
       const response = await fetch('/api/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
         body: JSON.stringify({
+          idempotency_key: idempotencyKey,
           business_id: visit.business_id,
           visit_id: visit.id,
           base_package_dollars: selectedPackage?.price ?? visit.base_price,
@@ -142,6 +211,15 @@ export function AtomicPOSModal({
           custom_tip_dollars: parseFloat(customTipDollars) || 0,
           payment_method: paymentMethod,
           loyalty_points_per_dollar: config.loyalty_points_per_dollar,
+          split_tenders:
+            paymentMethod === 'split'
+              ? [
+                  { method: 'cash', amount_cents: toCents(parseFloat(splitTenders.cash) || 0) },
+                  { method: 'credit_card', amount_cents: toCents(parseFloat(splitTenders.card) || 0) },
+                  { method: 'gift_card', amount_cents: toCents(parseFloat(splitTenders.giftCard) || 0) },
+                  { method: 'account_credit', amount_cents: toCents(parseFloat(splitTenders.accountCredit) || 0) },
+                ]
+              : undefined,
         }),
       });
 
@@ -151,6 +229,12 @@ export function AtomicPOSModal({
         visitId: visit.id,
         totalCents: breakdown.totalCents,
       });
+
+      try {
+        localStorage.removeItem('pawtrackr_pos_checkout_intent');
+      } catch {
+        // Ignore local storage remove errors
+      }
 
       setCompletedTx(tx);
       onCompleteTransaction(tx, breakdown.loyaltyPointsEarned);
@@ -242,6 +326,29 @@ export function AtomicPOSModal({
         <div className="grid flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-12">
           {/* Left Interactive Step Panel (7 cols) */}
           <div className=" space-y-5 p-6 lg:col-span-7">
+            {recoveredIntent && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-amber-400 shrink-0" />
+                  <span>Outbox Intent Restored: Prior offline checkout state recovered.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem('pawtrackr_pos_checkout_intent');
+                    } catch {
+                      // Ignore
+                    }
+                    setRecoveredIntent(false);
+                  }}
+                  className="text-[10px] text-amber-300 underline hover:text-amber-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
             {/* Pet Behavior Aura Banner */}
             <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900/70 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -595,7 +702,7 @@ export function AtomicPOSModal({
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       {[
                         {
                           id: 'apple_pay' as PaymentMethod,
@@ -614,6 +721,12 @@ export function AtomicPOSModal({
                           label: 'Cash preview',
                           sub: 'Change calculation',
                           icon: DollarSign,
+                        },
+                        {
+                          id: 'split' as PaymentMethod,
+                          label: 'Split preview',
+                          sub: 'Zero-variance split',
+                          icon: Layers,
                         },
                       ].map((m) => {
                         const Icon = m.icon;
@@ -644,6 +757,89 @@ export function AtomicPOSModal({
                         );
                       })}
                     </div>
+
+                    {paymentMethod === 'split' && (
+                      <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900 p-4 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-white uppercase tracking-wider">
+                            Multi-Tender Allocations
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-mono font-bold ${
+                              splitValidation.isValid
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}
+                          >
+                            {splitValidation.isValid
+                              ? '✓ Balanced to $0.00 exact'
+                              : `Variance: ${formatCents(splitValidation.varianceCents)} remaining`}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                          <div>
+                            <label className="block text-[11px] text-zinc-400">Cash ($)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              placeholder="0.00"
+                              value={splitTenders.cash}
+                              onChange={(e) =>
+                                setSplitTenders((prev) => ({ ...prev, cash: e.target.value }))
+                              }
+                              className="mt-1 w-full rounded-lg border border-white/[0.12] bg-obsidian-800 px-2.5 py-1.5 font-mono text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-zinc-400">Credit Card ($)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              placeholder="0.00"
+                              value={splitTenders.card}
+                              onChange={(e) =>
+                                setSplitTenders((prev) => ({ ...prev, card: e.target.value }))
+                              }
+                              className="mt-1 w-full rounded-lg border border-white/[0.12] bg-obsidian-800 px-2.5 py-1.5 font-mono text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-zinc-400">Gift Card ($)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              placeholder="0.00"
+                              value={splitTenders.giftCard}
+                              onChange={(e) =>
+                                setSplitTenders((prev) => ({ ...prev, giftCard: e.target.value }))
+                              }
+                              className="mt-1 w-full rounded-lg border border-white/[0.12] bg-obsidian-800 px-2.5 py-1.5 font-mono text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-zinc-400">Acct Credit ($)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              placeholder="0.00"
+                              value={splitTenders.accountCredit}
+                              onChange={(e) =>
+                                setSplitTenders((prev) => ({ ...prev, accountCredit: e.target.value }))
+                              }
+                              className="mt-1 w-full rounded-lg border border-white/[0.12] bg-obsidian-800 px-2.5 py-1.5 font-mono text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 border-t border-white/[0.06] pt-2">
+                          <span>Allocated: {formatCents(splitValidation.totalTenderedCents)}</span>
+                          <span>Final Total: {formatCents(breakdown.totalCents)}</span>
+                        </div>
+                      </div>
+                    )}
 
                     {paymentMethod === 'cash' && (
                       <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/[0.08] bg-obsidian-900 p-4">
@@ -765,13 +961,15 @@ export function AtomicPOSModal({
                   ) : (
                     <button
                       type="button"
-                      disabled={isProcessing}
+                      disabled={isProcessing || (paymentMethod === 'split' && !splitValidation.isValid)}
                       onClick={handleAtomicCommit}
                       className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 text-xs font-bold text-obsidian-950 shadow-emerald-glow transition hover:bg-emerald-400 disabled:opacity-50"
                     >
                       <Lock className="h-4 w-4" />
                       {isProcessing
                         ? 'Recording demo checkout...'
+                        : paymentMethod === 'split' && !splitValidation.isValid
+                        ? `Balance Required (${formatCents(splitValidation.varianceCents)})`
                         : `Record demo checkout ${formatCents(
                             breakdown.totalCents
                           )}`}

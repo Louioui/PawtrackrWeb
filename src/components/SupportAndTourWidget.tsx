@@ -29,8 +29,8 @@ const ONBOARDING_STEPS = [
   {
     step: 3,
     title: '3. Share Your Public Self-Booking URL',
-    desc: 'Let pet parents book 24/7 at pawtrackr.live/bespoke-grooming without phone tag.',
-    href: '/portal/bespoke-grooming',
+    desc: 'Let pet parents book 24/7 at your live booking storefront without phone tag.',
+    href: '/portal/live/pawtrackr-grooming',
   },
   {
     step: 4,

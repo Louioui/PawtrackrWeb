@@ -182,9 +182,11 @@ export default function LiveClientsPage() {
   return <main className="mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6">
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-4">
-        <Link href="/dashboard/appointments/live" className="text-sm text-periwinkle-300 hover:text-white">← Live appointments</Link>
-        <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300 hover:text-white">Live catalog & groomers</Link>
-        <Link href="/dashboard/analytics/live" className="text-sm text-periwinkle-300 hover:text-white">Recorded checkout analytics →</Link>
+        <Link href="/dashboard/appointments/live" className="text-sm text-periwinkle-300 hover:text-white">Live appointments</Link>
+        <Link href="/dashboard/operations/live" className="text-sm text-periwinkle-300 hover:text-white">Floor operations</Link>
+        <Link href="/dashboard/pos/live" className="text-sm text-periwinkle-300 hover:text-white">POS register</Link>
+        <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300 hover:text-white">Catalog & groomers</Link>
+        <Link href="/dashboard/analytics/live" className="text-sm text-periwinkle-300 hover:text-white">Recorded analytics →</Link>
       </div>
       {signedIn && <button type="button" onClick={signOut} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-200">Sign out</button>}
     </div>

@@ -295,15 +295,17 @@ export default function LiveAppointmentsPage() {
   return <main className="mx-auto max-w-[1600px] px-4 pb-20 pt-6 sm:px-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <details className="md:hidden"><summary className="min-h-11 cursor-pointer text-sm text-periwinkle-300">Other staff views</summary><div className="mt-2 flex flex-col gap-3 pb-2">
-        <Link href="/dashboard" className="text-sm text-periwinkle-300">Demo command center</Link>
+        <Link href="/dashboard/operations/live" className="text-sm text-periwinkle-300">Live floor operations</Link>
+        <Link href="/dashboard/pos/live" className="text-sm text-periwinkle-300">POS register & checkout</Link>
         <Link href="/dashboard/clients/live" className="text-sm text-periwinkle-300">Salon clients & pets</Link>
         <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300">Live catalog & groomers</Link>
         <Link href="/dashboard/analytics/live" className="text-sm text-periwinkle-300">Recorded checkout analytics</Link>
       </div></details>
       <div className="hidden flex-wrap items-center gap-4 md:flex">
-        <Link href="/dashboard" className="text-sm text-periwinkle-300 hover:text-white">← Demo command center</Link>
-        <Link href="/dashboard/clients/live" className="text-sm text-periwinkle-300 hover:text-white">Salon clients & pets →</Link>
-        <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300 hover:text-white">Live catalog & groomers →</Link>
+        <Link href="/dashboard/operations/live" className="text-sm text-periwinkle-300 hover:text-white">Live floor operations</Link>
+        <Link href="/dashboard/pos/live" className="text-sm text-periwinkle-300 hover:text-white">POS register</Link>
+        <Link href="/dashboard/clients/live" className="text-sm text-periwinkle-300 hover:text-white">Salon clients & pets</Link>
+        <Link href="/dashboard/settings/live" className="text-sm text-periwinkle-300 hover:text-white">Live catalog & groomers</Link>
         <Link href="/dashboard/analytics/live" className="text-sm text-periwinkle-300 hover:text-white">Recorded checkout analytics →</Link>
       </div>
       {signedIn && <button type="button" onClick={signOut} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-200">Sign out</button>}

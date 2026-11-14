@@ -27,3 +27,10 @@ yarn-error.log*
 *.tsbuildinfo
 /playwright-report/
 /test-results/
+
+# Agent configurations
+.agents/
+.claude/
+agent/
+skills-lock.json
+

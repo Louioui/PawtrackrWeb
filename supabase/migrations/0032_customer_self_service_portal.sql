@@ -41,7 +41,7 @@ BEGIN
     END IF;
 
     SELECT b.id, b.name, b.slug, b.phone, b.city_state,
-           COALESCE(c.time_zone, 'America/New_York') AS zone,
+           COALESCE(c.custom_settings->>'time_zone', 'America/New_York') AS zone,
            COALESCE(c.custom_settings->'operating_hours'->>'open', '08:00') AS open_clock,
            COALESCE(c.custom_settings->'operating_hours'->>'close', '18:00') AS close_clock
     INTO biz
@@ -297,7 +297,7 @@ BEGIN
     END IF;
 
     SELECT b.id, b.name, b.slug,
-           COALESCE(c.time_zone, 'America/New_York') AS zone,
+           COALESCE(c.custom_settings->>'time_zone', 'America/New_York') AS zone,
            COALESCE(c.custom_settings->'operating_hours'->>'open', '08:00') AS open_clock,
            COALESCE(c.custom_settings->'operating_hours'->>'close', '18:00') AS close_clock
     INTO biz

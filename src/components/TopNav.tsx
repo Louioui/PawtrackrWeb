@@ -4,8 +4,10 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  Activity,
   Calendar,
   Command,
+  CreditCard,
   Globe,
   Heart,
   KeyRound,
@@ -75,18 +77,18 @@ export function TopNav() {
       active: pathname?.startsWith('/dashboard/fleet'),
     },
     {
-      href: '/portal/bespoke-grooming',
+      href: '/portal/live',
       label: 'Self-Booking Portal',
-      sub: 'pawtrackr.live/salon',
+      sub: 'pawtrackr.live/directory',
       icon: Globe,
       active: pathname?.startsWith('/portal'),
     },
     {
-      href: '/client/cl-101',
-      label: 'Client Portal',
-      sub: 'Report Cards & Loyalty',
+      href: '/portal/live',
+      label: 'Client Self-Service',
+      sub: 'Manage Booking & Cards',
       icon: Heart,
-      active: pathname?.startsWith('/client'),
+      active: pathname?.startsWith('/portal/live') && pathname?.includes('/manage'),
     },
   ];
 
@@ -182,7 +184,13 @@ export function TopNav() {
   }
 
   // Pure Apple/Stripe-Grade Minimal Distraction-Free Header for Auth & Onboarding
-  if (pathname === '/signup' || pathname === '/welcome' || pathname === '/login') {
+  if (
+    pathname === '/signup' ||
+    pathname === '/welcome' ||
+    pathname === '/login' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password'
+  ) {
     return (
       <header className="sticky top-0 z-50 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6 lg:px-8">
@@ -206,6 +214,10 @@ export function TopNav() {
                   ? 'Salon Registration & Provisioning'
                   : pathname === '/welcome'
                   ? 'Salon Setup & Activation'
+                  : pathname === '/forgot-password'
+                  ? 'Password Recovery Request'
+                  : pathname === '/reset-password'
+                  ? 'Set New Staff Password'
                   : 'Salon Workspace Sign In'}
               </p>
             </div>
@@ -284,7 +296,7 @@ export function TopNav() {
           {/* Customer Navigation Links */}
           <nav className="hidden sm:flex items-center gap-1 rounded-2xl border border-white/[0.07] bg-obsidian-800/80 p-1">
             <Link
-              href="/portal/bespoke-grooming"
+              href="/portal/live"
               className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
                 isBookingPortal
                   ? 'border border-periwinkle-500/40 bg-periwinkle-500/15 text-white shadow-periwinkle-glow'
@@ -330,6 +342,20 @@ export function TopNav() {
       sub: 'Live Schedule',
       icon: Calendar,
       active: pathname === '/dashboard/appointments/live',
+    },
+    {
+      href: '/dashboard/operations/live',
+      label: 'Operations',
+      sub: 'Floor Queue & Stages',
+      icon: Activity,
+      active: pathname === '/dashboard/operations/live',
+    },
+    {
+      href: '/dashboard/pos/live',
+      label: 'POS Register',
+      sub: 'Checkout & Tips',
+      icon: CreditCard,
+      active: pathname === '/dashboard/pos/live',
     },
     {
       href: '/dashboard/clients/live',

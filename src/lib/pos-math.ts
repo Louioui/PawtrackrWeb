@@ -72,6 +72,65 @@ export function fromCents(cents: number): number {
 }
 
 /**
+ * Converts exact integer cents back to a standard string representation, e.g. "123.75".
+ */
+export function toDollars(centInt: number): string {
+  return (Math.round(centInt) / 100).toFixed(2);
+}
+
+/**
+ * Calculates tax in cents from integer subtotal and tax rate in basis points (1% = 100 bps).
+ */
+export function calculateTax(subtotalCents: number, taxRateBasisPoints: number): number {
+  if (subtotalCents <= 0 || taxRateBasisPoints <= 0) return 0;
+  return Math.round((subtotalCents * taxRateBasisPoints) / 10000);
+}
+
+export interface SplitTenderItem {
+  method: 'cash' | 'credit_card' | 'gift_card' | 'account_credit';
+  amountCents: number;
+}
+
+/**
+ * Validates that the sum of split tenders matches the final total exactly to zero cents.
+ */
+export function validateSplitTenders(
+  tenders: SplitTenderItem[],
+  totalCents: number
+): {
+  isValid: boolean;
+  totalTenderedCents: number;
+  varianceCents: number;
+  error?: string;
+} {
+  const totalTenderedCents = tenders.reduce(
+    (sum, t) => sum + Math.max(0, Math.round(t.amountCents)),
+    0
+  );
+  const varianceCents = totalCents - totalTenderedCents;
+  if (varianceCents !== 0) {
+    return {
+      isValid: false,
+      totalTenderedCents,
+      varianceCents,
+      error: `Split tenders (${formatCents(totalTenderedCents)}) do not match final total (${formatCents(totalCents)}). Variance: ${formatCents(varianceCents)}`,
+    };
+  }
+  return {
+    isValid: true,
+    totalTenderedCents,
+    varianceCents: 0,
+  };
+}
+
+/**
+ * Validates that discount multiplier is within legal non-negative fraction [0.00, 1.00].
+ */
+export function validateDiscountMultiplier(multiplier: number): boolean {
+  return Number.isFinite(multiplier) && multiplier >= 0.0 && multiplier <= 1.0;
+}
+
+/**
  * Formats exact integer cents as a localized currency display string.
  */
 export function formatCents(

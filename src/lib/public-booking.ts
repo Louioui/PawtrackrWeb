@@ -43,8 +43,13 @@ function parseServices(value: unknown): PublicService[] {
     if (!isRecord(item) || typeof item.name !== 'string' || !item.name.trim()) return [];
     const price = typeof item.price === 'number' && Number.isFinite(item.price) && item.price >= 0
       ? item.price : null;
-    const durationMinutes = typeof item.durationMinutes === 'number' &&
-      Number.isInteger(item.durationMinutes) && item.durationMinutes > 0 ? item.durationMinutes : null;
+    const rawDuration = typeof item.durationMinutes === 'number'
+      ? item.durationMinutes
+      : typeof item.duration_minutes === 'number'
+        ? item.duration_minutes
+        : null;
+    const durationMinutes = rawDuration !== null &&
+      Number.isInteger(rawDuration) && rawDuration > 0 ? rawDuration : null;
     return [{
       id: typeof item.id === 'string' && item.id.trim() && item.id.length <= 100 ? item.id : null,
       name: item.name.trim(),

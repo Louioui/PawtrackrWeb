@@ -62,6 +62,8 @@ export function DemoSwitcherBar() {
     pathname === '/signup' ||
     pathname === '/welcome' ||
     pathname === '/login' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password' ||
     pathname.startsWith('/dashboard/analytics') ||
     pathname.startsWith('/portal') ||
     pathname.startsWith('/client') ||

@@ -10,6 +10,12 @@ const STAFF_DESTINATIONS = [
   '/dashboard/clients/live',
   '/dashboard/analytics/live',
   '/dashboard/settings/live',
+  '/dashboard/operations/live',
+  '/dashboard/pos/live',
+  '/dashboard/payroll/live',
+  '/dashboard/waitlist/live',
+  '/dashboard/fleet/live',
+  '/dashboard/import/live',
 ] as const;
 
 // `?next=` comes from the address bar, so it is attacker-controlled. Anything

@@ -9,7 +9,7 @@ import { DEMO_ROLE_LINKS, checkSignInFields, safeStaffDestination, signInFailure
 
 type Phase = 'checking' | 'signed-out' | 'signing-in' | 'signed-in';
 
-export function StaffSignInCard() {
+export function StaffSignInCard({ showDemoShortcuts = false }: { showDemoShortcuts?: boolean } = {}) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>('checking');
   const [email, setEmail] = useState('');
@@ -103,10 +103,28 @@ export function StaffSignInCard() {
             Email
             <input type="email" name="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} className={field} />
           </label>
-          <label className="text-sm text-zinc-300">
-            Password
-            <input type="password" name="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className={field} />
-          </label>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label htmlFor="staff-password-input" className="text-sm text-zinc-300">
+                Password
+              </label>
+              <Link
+                href="/forgot-password"
+                className="text-xs text-periwinkle-300 underline-offset-4 hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
+            <input
+              id="staff-password-input"
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className={field}
+            />
+          </div>
           <button type="submit" disabled={phase === 'signing-in'} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-periwinkle-500 px-5 text-sm font-semibold text-obsidian-900 disabled:opacity-60">
             <LockKeyhole className="h-4 w-4" /> {phase === 'signing-in' ? 'Signing in…' : 'Sign in'}
           </button>
@@ -114,19 +132,21 @@ export function StaffSignInCard() {
       )}
       {message && <p role="alert" className="mt-3 text-sm text-amber-200">{message}</p>}
 
-      <div className="mt-6 border-t border-white/10 pt-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Just exploring? Open a sample workspace — no account, sample data only</p>
-        <ul className="mt-3 grid gap-2 sm:grid-cols-3">
-          {DEMO_ROLE_LINKS.map((link) => (
-            <li key={link.href}>
-              <Link href={link.href} className="block min-h-11 rounded-lg border border-white/10 px-4 py-2.5 hover:border-periwinkle-400/50">
-                <span className="block text-sm font-semibold text-white">{link.label}</span>
-                <span className="block text-xs text-zinc-400">{link.detail}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {showDemoShortcuts && (
+        <div className="mt-6 border-t border-white/10 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Just exploring? Open a sample workspace — no account, sample data only</p>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-3">
+            {DEMO_ROLE_LINKS.map((link) => (
+              <li key={link.href}>
+                <Link href={link.href} className="block min-h-11 rounded-lg border border-white/10 px-4 py-2.5 hover:border-periwinkle-400/50">
+                  <span className="block text-sm font-semibold text-white">{link.label}</span>
+                  <span className="block text-xs text-zinc-400">{link.detail}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

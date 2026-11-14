@@ -19,7 +19,7 @@ export default async function LiveSalonDirectoryPage() {
 
   return <main className="mx-auto max-w-5xl px-4 pb-20 pt-10 sm:px-6">
     <div className="mb-7 flex flex-wrap items-center justify-between gap-3">
-      <Link href="/portal" className="text-sm text-periwinkle-300 hover:text-white">← Demo salon directory</Link>
+      <Link href="/" className="text-sm text-periwinkle-300 hover:text-white">← Back to Pawtrackr Home</Link>
       <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-300">Public salon records</span>
     </div>
     <header className="max-w-2xl">

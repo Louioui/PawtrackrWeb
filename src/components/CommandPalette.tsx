@@ -147,12 +147,12 @@ export function CommandPalette({
       icon: Globe,
     },
     {
-      label: 'Public Self-Booking Storefront (Bespoke Studio)',
-      href: '/portal/bespoke-grooming',
+      label: 'Live Booking Storefront (Pawtrackr Grooming Studio)',
+      href: '/portal/live/pawtrackr-grooming',
       icon: Globe,
     },
     {
-      label: 'Groomer Station 4-Digit PIN Switcher',
+      label: 'Staff Workspace Sign In (Supabase Auth)',
       href: '/login',
       icon: KeyRound,
     },

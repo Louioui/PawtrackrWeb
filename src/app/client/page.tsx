@@ -190,7 +190,7 @@ export default function ClientAccountLookupPage() {
         <div>&copy; 2026 Pawtrackr Technologies Inc. Military-grade isolation.</div>
         <div className="flex items-center gap-4">
           <Link href="/" className="hover:text-white transition">Home</Link>
-          <Link href="/portal/bespoke-grooming" className="hover:text-white transition">Book Appointment</Link>
+          <Link href="/portal/live" className="hover:text-white transition">Book Appointment</Link>
           <Link href="/login" className="hover:text-white transition">Staff Sign In</Link>
         </div>
       </div>

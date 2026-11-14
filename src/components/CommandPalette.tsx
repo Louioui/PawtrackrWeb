@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   ArrowRight,
   Command,
@@ -35,6 +35,8 @@ export function CommandPalette({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const isLiveRoute = Boolean(pathname?.includes('/live'));
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -185,7 +187,8 @@ export function CommandPalette({
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto p-4 space-y-5">
-          {/* Matched Pets & Clients */}
+          {/* Matched Pets & Clients (demo workspace only — never leak mock records on live tenant routes) */}
+          {!isLiveRoute && (
           <div>
             <div className="px-2 text-[11px] font-bold uppercase tracking-wider text-zinc-400">
               Matched Pet Dossiers & Client Portals ({report.results.length})
@@ -232,6 +235,7 @@ export function CommandPalette({
               ))}
             </div>
           </div>
+          )}
 
           {/* Quick Jump Modules */}
           <div>

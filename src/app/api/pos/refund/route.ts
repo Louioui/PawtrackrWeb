@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   if (error) {
     const code = (error as { code?: string }).code;
     if (code === 'PW045') return noStoreJson({ error: error.message, code: 'PW045' }, 403);
-    if (code === 'PW046') return noStoreJson({ error: error.message, code: 'PW046' }, 422);
+    if (code === 'PW046' || code === 'PW047') return noStoreJson({ error: error.message, code }, 422);
     if (code === 'PW028') return noStoreJson({ error: error.message, code: 'PW028' }, 404);
     return noStoreJson({ error: error.message || 'Failed to process refund.' }, 500);
   }

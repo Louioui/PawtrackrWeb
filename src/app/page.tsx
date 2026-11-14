@@ -10,10 +10,12 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Clock,
   Command,
   CreditCard,
+  Database,
   ExternalLink,
   FileText,
   Globe,
@@ -21,11 +23,14 @@ import {
   HelpCircle,
   Layers,
   Lock,
+  MessageSquare,
+  Mic,
   Pause,
   Play,
   Receipt,
   RefreshCw,
   Scale,
+  ScanBarcode,
   Scissors,
   Search,
   ShieldAlert,
@@ -234,6 +239,77 @@ const AVAILABILITY_SCENARIOS: Record<
   },
 };
 
+const PRODUCT_PREVIEW_SLIDES = [
+  {
+    id: 'slide-schedule',
+    badge: 'SLIDE 01 • MULTI-GROOMER SCHEDULE & GIST EXCLUSION',
+    title: 'Collision-Proof Salon Schedule & Turnaround Buffers',
+    subtitle:
+      'PostgreSQL btree_gist tstzrange constraints lock groomer lanes, hydraulic tubs, and 15-minute sanitation buffers simultaneously.',
+    metrics: [
+      { label: 'Suite 01 • Elena R.', value: '10:30 AM – 12:00 PM (+15m)', accent: 'text-emerald-300' },
+      { label: 'Suite 02 • Marcus V.', value: '10:00 AM – 11:30 AM (+15m)', accent: 'text-periwinkle-300' },
+      { label: 'Double-Booking Risk', value: '0.00% (DB Enforced)', accent: 'text-emerald-300' },
+    ],
+    rows: [
+      { left: 'Bello • Mini Goldendoodle (28.4 lb)', right: 'Rabies Verified • Dryer Sensitive' },
+      { left: 'Barnaby • Standard Poodle (54.0 lb)', right: 'Full Scissor Teddy Cut • $185.00' },
+      { left: 'Koda • Siberian Husky (49.2 lb)', right: 'Undercoat De-Shedding • $155.00' },
+    ],
+  },
+  {
+    id: 'slide-pos',
+    badge: 'SLIDE 02 • INTEGER-CENT POS & HID BARCODE REGISTER',
+    title: '$0.00 Cash Variance Checkout & Split Tenders',
+    subtitle:
+      'Fixed-point integer-cent math, cryptographic Stripe idempotency, and <45ms Bluetooth/USB HID barcode retail scanning.',
+    metrics: [
+      { label: 'Grooming + Retail SKU', value: '$115.00 + $24.00 Oat Wash', accent: 'text-white' },
+      { label: 'Split Tender Balance', value: '$60.00 Cash • $108.56 Card', accent: 'text-periwinkle-300' },
+      { label: 'Drawer Variance', value: '$0.00 Exact Cent Lock', accent: 'text-emerald-300' },
+    ],
+    rows: [
+      { left: 'UPC-A Scanned: Botanical Oatmeal Shampoo', right: 'Atomic Stock Deducted (14 → 13)' },
+      { left: 'Idempotency Nonce (payment_intent.succeeded)', right: 'Duplicate Replay Neutralized' },
+      { left: 'Stylist Tip Pool Allocation', right: 'Zero-Cent Remainder Drift' },
+    ],
+  },
+  {
+    id: 'slide-offline-van',
+    badge: 'SLIDE 03 • OFFLINE-FIRST MOBILE VAN PWA & 3-WAY MERGE',
+    title: 'Unbreakable Curbside Fleet Operations Without Cell Signal',
+    subtitle:
+      'Local IndexedDB outboxes persist route progressions and checkouts offline with SHA-256 OCC version hashes and automatic 3-way merge.',
+    metrics: [
+      { label: 'Sprinter Inverter / Fresh H2O', value: '94% Pure Sine • 55 Gal', accent: 'text-emerald-300' },
+      { label: 'IndexedDB Vault Status', value: 'Synced (sha256:4f810aa7)', accent: 'text-periwinkle-300' },
+      { label: 'Conflict Resolution', value: '3-Way OCC Clean Merge', accent: 'text-emerald-300' },
+    ],
+    rows: [
+      { left: 'Stop 01 • 910 Montana Ave (Rocco)', right: 'Completed • Curbside Receipt Sent' },
+      { left: 'Stop 02 • 1420 17th St (Barnaby)', right: 'Hydro-Bath Active • Cabin 71°F' },
+      { left: 'Stop 03 • 2204 Ocean Park Blvd (Bella)', right: 'Automated 18-Min Traffic ETA SMS' },
+    ],
+  },
+  {
+    id: 'slide-crm-payroll',
+    badge: 'SLIDE 04 • WHISPER AI INTAKE, COAT RECALL & TIERED PAYROLL',
+    title: 'Autonomous Growth Engine & Progressive Stylist Commissions',
+    subtitle:
+      'Whisper AI converts missed calls into coat-aware bookings while marginal commission brackets reward top stylists automatically.',
+    metrics: [
+      { label: 'Doodle Coat Recall Cadence', value: 'Every 6 Weeks (10DLC SMS)', accent: 'text-amber-300' },
+      { label: 'Whisper AI Prompt Shield', value: 'Injection Neutralized', accent: 'text-emerald-300' },
+      { label: 'Marginal Commission Tiers', value: '40% → 45% → 50% Split', accent: 'text-periwinkle-300' },
+    ],
+    rows: [
+      { left: 'Missed Voicemail → Structured Goldendoodle Quote', right: '1-Tap Confirmation Dispatched' },
+      { left: 'Post-Groom 5-Star Sentiment Router', right: '4–5★ Public • ≤3★ Private Manager' },
+      { left: 'Locked Bi-Weekly Payroll Export (WF08)', right: 'Gusto & QuickBooks CSV Ready' },
+    ],
+  },
+] as const;
+
 export default function LandingPage() {
   // Interactive Demonstration State
   const [activePerspective, setActivePerspective] =
@@ -242,6 +318,9 @@ export default function LandingPage() {
     useState<LifecycleStageKey>('confirmed');
   const [demoAppointmentCompleted, setDemoAppointmentCompleted] =
     useState<boolean>(false);
+
+  // Static Product Preview Carousel State
+  const [activeSlideIndex, setActiveSlideIndex] = useState<number>(0);
 
   // Animation & Tour Auto-Play State
   const [isTourAutoPlaying, setIsTourAutoPlaying] = useState<boolean>(false);
@@ -426,7 +505,312 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          2. FUSED PLATFORM ARCHITECTURE & DIRECT EXPERIENCE WORKFLOWS
+          2. BENTO-GRID ENTERPRISE ARCHITECTURE & COMMERCIAL SHOWCASE
+      ===================================================================== */}
+      <section
+        id="bento-architecture"
+        aria-label="Enterprise architecture bento showcase"
+        className="space-y-8 scroll-mt-24 animate-rise-in"
+      >
+        <div className="text-center max-w-3xl mx-auto space-y-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
+            Bulletproof Systems Engineering
+          </span>
+          <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+            Engineered to Outclass Legacy Grooming Software
+          </h2>
+          <p className="text-sm text-zinc-300 leading-relaxed">
+            Every layer of Pawtrackr Web enforces strict mathematical, cryptographic, and operational invariants—from fixed-point integer-cent ledgers to database-level double-booking immunity.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+          {/* Bento 1 (7 Cols): Integer-Cent POS & Cryptographic Idempotency */}
+          <div className="md:col-span-7 rounded-3xl border border-white/[0.1] bg-gradient-to-br from-obsidian-800/90 via-obsidian-900 to-obsidian-950 p-6 sm:p-8 flex flex-col justify-between shadow-xl">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex items-center gap-2 rounded-xl border border-periwinkle-500/35 bg-periwinkle-500/15 px-3 py-1.5 text-xs font-bold text-periwinkle-300">
+                  <Receipt className="h-4 w-4" />
+                  <span>FIXED-POINT INTEGER-CENT ENGINE</span>
+                </div>
+                <span className="font-mono text-xs font-semibold text-emerald-300">
+                  $0.00 Drawer Variance
+                </span>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-bold text-white">
+                Zero Floating-Point Drift &amp; Replay-Proof Checkout
+              </h3>
+              <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                Base packages, matted-coat surcharges, municipal taxes, stylist tip pools, and split cash-plus-card tenders execute strictly in integer cents. Cryptographic idempotency keys neutralize replayed Stripe webhooks before they ever touch your ledger.
+              </p>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-2xl border border-white/[0.08] bg-obsidian-950/90 p-4 font-mono text-xs">
+              <div>
+                <span className="text-zinc-400 block text-[11px]">Service + Tax + Tip</span>
+                <span className="text-white font-bold text-sm">14,743¢ ($147.43)</span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block text-[11px]">Split Cash / Card</span>
+                <span className="text-periwinkle-300 font-bold text-sm">5,000¢ + 9,743¢</span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block text-[11px]">Reconciliation Delta</span>
+                <span className="text-emerald-300 font-bold text-sm">0¢ Verified</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bento 2 (5 Cols): PostgreSQL btree_gist Exclusion */}
+          <div className="md:col-span-5 rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-8 flex flex-col justify-between shadow-xl">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300">
+                <Database className="h-4 w-4" />
+                <span>POSTGRESQL BTREE_GIST</span>
+              </div>
+              <h3 className="text-xl font-bold text-white">
+                Mathematically Impossible Double-Bookings
+              </h3>
+              <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                Database-level <span className="font-mono text-periwinkle-300">tstzrange</span> exclusion constraints protect groomer shifts, hydraulic tables, bathing tubs, and mobile van routes—even under sub-millisecond concurrent requests.
+              </p>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-3.5 text-xs text-zinc-200 space-y-1">
+              <div className="flex items-center justify-between font-mono">
+                <span className="text-emerald-300 font-bold">EXCLUDE USING gist</span>
+                <span className="text-zinc-300">[10:30, 12:15)</span>
+              </div>
+              <p className="text-[11px] text-zinc-300">
+                Includes automatic 15-minute table sanitization &amp; drying buffer.
+              </p>
+            </div>
+          </div>
+
+          {/* Bento 3 (4 Cols): Offline-First Mobile Van PWA */}
+          <div className="md:col-span-4 rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 flex flex-col justify-between shadow-xl">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-xl border border-periwinkle-500/35 bg-periwinkle-500/15 px-3 py-1.5 text-xs font-bold text-periwinkle-300">
+                <Truck className="h-4 w-4" />
+                <span>OFFLINE-FIRST VAN PWA</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">
+                IndexedDB Outbox &amp; 3-Way OCC Merge
+              </h3>
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Groom in subterranean garages or rural dead zones without losing a single tap. Local IndexedDB outboxes hash mutations with SHA-256 OCC versions and reconcile cleanly on reconnect.
+              </p>
+            </div>
+            <div className="mt-5 flex items-center justify-between border-t border-white/[0.08] pt-3 font-mono text-[11px] text-emerald-300">
+              <span>Vault: pawtrackr_offline_vault</span>
+              <span>3-Way Merge</span>
+            </div>
+          </div>
+
+          {/* Bento 4 (4 Cols): Coat-Aware Twilio SMS Recall */}
+          <div className="md:col-span-4 rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 flex flex-col justify-between shadow-xl">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-300">
+                <MessageSquare className="h-4 w-4" />
+                <span>TWILIO 10DLC CRM</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">
+                Coat-Aware SMS Recall &amp; Two-Way Inbox
+              </h3>
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Automated 6-week Doodle matting prevention texts, two-way client messaging, TCPA STOP enforcement, and 5-star Google review sentiment routing.
+              </p>
+            </div>
+            <div className="mt-5 flex items-center justify-between border-t border-white/[0.08] pt-3 font-mono text-[11px] text-periwinkle-300">
+              <span>Doodles: 6w • Double: 8w</span>
+              <span>4–5★ Public</span>
+            </div>
+          </div>
+
+          {/* Bento 5 (4 Cols): Autonomous Whisper AI Voice Receptionist */}
+          <div className="md:col-span-4 rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 flex flex-col justify-between shadow-xl">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300">
+                <Mic className="h-4 w-4" />
+                <span>WHISPER AI CONCIERGE</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">
+                Autonomous AI Voice Receptionist
+              </h3>
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Turns missed calls while dryers are roaring into structured breed-aware appointment quotes—hardened against adversarial prompt injection.
+              </p>
+            </div>
+            <div className="mt-5 flex items-center justify-between border-t border-white/[0.08] pt-3 font-mono text-[11px] text-emerald-300">
+              <span>Prompt-Shield Armed</span>
+              <span>24/7 Intake</span>
+            </div>
+          </div>
+
+          {/* Bento 6 (12 Cols): HID Barcode Retail, Progressive Payroll & RLS Isolation */}
+          <div className="md:col-span-12 rounded-3xl border border-white/[0.1] bg-obsidian-900/95 p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-3 gap-6 items-center shadow-xl">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 text-xs font-bold text-periwinkle-300 uppercase tracking-wider">
+                <ScanBarcode className="h-4 w-4" />
+                <span>HID Barcode Retail &amp; Tiered Payroll</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">
+                Sub-45ms Retail Scanning &amp; Marginal Stylist Commissions
+              </h3>
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Bluetooth/USB HID barcode scanners deduct retail inventory atomically with non-negative stock constraints, while progressive commission brackets (40% / 45% / 50%) export cleanly to Gusto and QuickBooks.
+              </p>
+            </div>
+
+            <div className="space-y-2 rounded-2xl border border-white/[0.08] bg-obsidian-950 p-4 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-white">JWT-Bound Supabase RLS</span>
+                <span className="font-mono text-emerald-300">Zero Cross-Tenant Bleed</span>
+              </div>
+              <p className="text-[11px] text-zinc-300">
+                Row-Level Security, hardware passkey revocation registries, and GDPR pseudonymization protect every franchise unit.
+              </p>
+            </div>
+
+            <div className="space-y-2 rounded-2xl border border-white/[0.08] bg-obsidian-950 p-4 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-white">OpenTelemetry &amp; Canary Health</span>
+                <span className="font-mono text-periwinkle-300">W3C traceparent</span>
+              </div>
+              <p className="text-[11px] text-zinc-300">
+                Continuous synthetic canary probes, circuit breakers, and distributed request tracing keep salon operations resilient.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          2B. HIGH-FIDELITY STATIC PRODUCT PREVIEW CAROUSEL (ZERO LIVE SANDBOX)
+      ===================================================================== */}
+      <section
+        id="product-previews"
+        role="region"
+        aria-roledescription="carousel"
+        aria-label="Pawtrackr static product preview carousel"
+        className="rounded-3xl border border-white/[0.1] bg-obsidian-900 p-6 sm:p-10 space-y-6 shadow-2xl scroll-mt-24"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 border-b border-white/[0.08] pb-5">
+          <div className="space-y-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">
+              High-Fidelity Product Previews
+            </span>
+            <h2 className="text-2xl font-bold text-white">
+              Crystal-Clear Salon Workflows Before You Sign Up
+            </h2>
+            <p className="text-xs text-zinc-300 max-w-2xl">
+              Inspect verified interface snapshots across scheduling, POS checkout, mobile van telemetry, and AI retention—purpose-built for commercial clarity without noisy sandbox clutter.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Previous product preview slide"
+              onClick={() =>
+                setActiveSlideIndex(
+                  (prev) => (prev - 1 + PRODUCT_PREVIEW_SLIDES.length) % PRODUCT_PREVIEW_SLIDES.length
+                )
+              }
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.14] bg-obsidian-950 text-zinc-200 transition hover:border-periwinkle-400 hover:text-white"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="font-mono text-xs text-zinc-300 px-2">
+              {activeSlideIndex + 1} / {PRODUCT_PREVIEW_SLIDES.length}
+            </span>
+            <button
+              type="button"
+              aria-label="Next product preview slide"
+              onClick={() =>
+                setActiveSlideIndex((prev) => (prev + 1) % PRODUCT_PREVIEW_SLIDES.length)
+              }
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.14] bg-obsidian-950 text-zinc-200 transition hover:border-periwinkle-400 hover:text-white"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Slide Selector Pills */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {PRODUCT_PREVIEW_SLIDES.map((slide, idx) => {
+            const isCurrent = idx === activeSlideIndex;
+            return (
+              <button
+                key={slide.id}
+                type="button"
+                aria-pressed={isCurrent}
+                onClick={() => setActiveSlideIndex(idx)}
+                className={`rounded-xl border px-3.5 py-2.5 text-left text-xs font-semibold transition ${
+                  isCurrent
+                    ? 'border-periwinkle-400 bg-periwinkle-500/20 text-white shadow-sm'
+                    : 'border-white/[0.08] bg-obsidian-950 text-zinc-300 hover:border-white/20 hover:text-white'
+                }`}
+              >
+                <span className="block font-mono text-[10px] text-periwinkle-300">
+                  0{idx + 1}
+                </span>
+                <span className="line-clamp-1">{slide.title}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Active Static Slide Canvas */}
+        {(() => {
+          const slide = PRODUCT_PREVIEW_SLIDES[activeSlideIndex];
+          return (
+            <div
+              key={slide.id}
+              aria-live="polite"
+              className="rounded-2xl border border-white/[0.1] bg-obsidian-950 p-5 sm:p-7 space-y-5 animate-rise-in"
+            >
+              <div className="space-y-1.5">
+                <span className="inline-block rounded-md border border-periwinkle-500/30 bg-periwinkle-500/10 px-2.5 py-1 font-mono text-[10px] font-bold text-periwinkle-300">
+                  {slide.badge}
+                </span>
+                <h3 className="text-lg sm:text-xl font-bold text-white">{slide.title}</h3>
+                <p className="text-xs sm:text-sm text-zinc-300">{slide.subtitle}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {slide.metrics.map((m) => (
+                  <div
+                    key={m.label}
+                    className="rounded-xl border border-white/[0.08] bg-obsidian-900/90 p-3.5"
+                  >
+                    <span className="text-[11px] text-zinc-400 block">{m.label}</span>
+                    <span className={`mt-1 block font-mono text-sm font-bold ${m.accent}`}>
+                      {m.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                {slide.rows.map((row) => (
+                  <div
+                    key={row.left}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 rounded-xl border border-white/[0.07] bg-obsidian-900/60 px-4 py-2.5 text-xs"
+                  >
+                    <span className="font-semibold text-white">{row.left}</span>
+                    <span className="font-mono text-emerald-300">{row.right}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+      </section>
+
+      {/* =====================================================================
+          2C. FUSED PLATFORM WORKFLOW PILLARS
       ===================================================================== */}
       <section id="features" className="space-y-8 scroll-mt-24">
         <div className="text-center max-w-2xl mx-auto space-y-2">
@@ -437,7 +821,7 @@ export default function LandingPage() {
             How Pawtrackr Solves Your Daily Headaches
           </h2>
           <p className="text-sm text-zinc-400">
-            Designed to replace clunky legacy software with one synchronized platform. Click any core engine below to explore its live workflow:
+            Designed to replace clunky legacy software with one synchronized platform across online booking, salon schedules, pet safety records, and cent-exact checkout:
           </p>
         </div>
 
@@ -465,7 +849,7 @@ export default function LandingPage() {
               href="/portal/live"
               className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 py-2.5 px-4 text-xs font-bold text-emerald-300 hover:bg-emerald-500 hover:text-obsidian-950 transition"
             >
-              Open Client Booking Portal <ChevronRight className="h-4 w-4" />
+              Browse Published Salons <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
 
@@ -488,12 +872,13 @@ export default function LandingPage() {
                 <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> 1-tap Smart Triage sick reassignment</li>
               </ul>
             </div>
-            <Link
-              href="/dashboard/appointments/live"
+            <a
+              href="#product-previews"
+              onClick={() => setActiveSlideIndex(0)}
               className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-periwinkle-500/15 border border-periwinkle-500/30 py-2.5 px-4 text-xs font-bold text-periwinkle-300 hover:bg-periwinkle-500 hover:text-obsidian-950 transition"
             >
-              Open Salon Schedule <ChevronRight className="h-4 w-4" />
-            </Link>
+              Preview Schedule Suite <ChevronRight className="h-4 w-4" />
+            </a>
           </div>
 
           {/* Card 3: Rabies & Medical Care Vault */}
@@ -516,10 +901,10 @@ export default function LandingPage() {
               </ul>
             </div>
             <Link
-              href="/dashboard/clients/live"
+              href="/welcome"
               className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500/15 border border-amber-500/30 py-2.5 px-4 text-xs font-bold text-amber-300 hover:bg-amber-500 hover:text-obsidian-950 transition"
             >
-              Open Medical Vault <ChevronRight className="h-4 w-4" />
+              Provision Salon Vault <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
 
@@ -542,12 +927,13 @@ export default function LandingPage() {
                 <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-400" /> Automatic groomer tip pools</li>
               </ul>
             </div>
-            <Link
-              href="/dashboard/pos/live"
+            <a
+              href="#product-previews"
+              onClick={() => setActiveSlideIndex(1)}
               className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-periwinkle-500/15 border border-periwinkle-500/30 py-2.5 px-4 text-xs font-bold text-periwinkle-300 hover:bg-periwinkle-500 hover:text-obsidian-950 transition"
             >
-              Open POS Register <ChevronRight className="h-4 w-4" />
-            </Link>
+              Preview POS Register <ChevronRight className="h-4 w-4" />
+            </a>
           </div>
         </div>
       </section>
@@ -1103,7 +1489,7 @@ export default function LandingPage() {
       </section>
 
       {/* =====================================================================
-          8. FINAL CALL TO ACTION (START FREE TRIAL OR LAUNCH DEMO)
+          8. FINAL CALL TO ACTION (START FREE TRIAL)
       ===================================================================== */}
       <section className="relative overflow-hidden rounded-3xl border border-periwinkle-500/40 bg-gradient-to-r from-obsidian-900 via-obsidian-800 to-obsidian-900 p-8 sm:p-12 text-center shadow-periwinkle-glow">
         <div className="relative z-10 max-w-2xl mx-auto space-y-4">
@@ -1114,7 +1500,7 @@ export default function LandingPage() {
             Ready to Give Your Groomers Peace of Mind?
           </h2>
           <p className="text-sm text-zinc-300 leading-relaxed">
-            Join grooming salons and mobile van fleets upgrading to Pawtrackr. Start your free trial in 2 minutes, or test drive the live interactive demo right now.
+            Join grooming salons and mobile van fleets upgrading to Pawtrackr. Provision your isolated salon workspace in 2 minutes with zero setup fees.
           </p>
 
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-4">

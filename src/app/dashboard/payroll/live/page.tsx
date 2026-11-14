@@ -32,6 +32,8 @@ import {
   StaffPayrollLine,
   PayrollPeriodSummary,
   DEFAULT_COMMISSION_RATES,
+  DEFAULT_PROGRESSIVE_COMMISSION_TIERS,
+  calculateTieredCommissionCents,
 } from '@/lib/live-payroll';
 
 type PayrollPeriodRow = {
@@ -552,6 +554,49 @@ export default function LivePayrollPage() {
               {formatCents(summary?.totalHouseRetainedCents ?? 0)}
             </p>
             <span className="text-[11px] text-zinc-500 mt-0.5 block">Salon revenue after commissions</span>
+          </div>
+        </div>
+
+        {/* Progressive Marginal Commission Tier Brackets */}
+        <div className="rounded-2xl border border-white/10 bg-[#14121A]/80 p-5 backdrop-blur-xl">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3.5">
+            <div className="flex items-center gap-2">
+              <Sliders className="h-4 w-4 text-[#8B95FF]" />
+              <h2 className="text-sm font-bold text-white tracking-tight">
+                Progressive Marginal Groomer Commission Brackets
+              </h2>
+            </div>
+            <span className="font-mono text-[11px] text-emerald-300">
+              PostgreSQL `calculate_progressive_commission_cents` • 0¢ Drift
+            </span>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {DEFAULT_PROGRESSIVE_COMMISSION_TIERS.map((tier, idx) => {
+              const sampleGross = idx === 0 ? 200_000 : idx === 1 ? 400_000 : 650_000;
+              const sampleCommission = calculateTieredCommissionCents(
+                sampleGross,
+                40,
+                DEFAULT_PROGRESSIVE_COMMISSION_TIERS
+              );
+              return (
+                <div
+                  key={tier.label ?? idx}
+                  className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white">{tier.label}</span>
+                    <span className="rounded-full border border-[#8B95FF]/30 bg-[#8B95FF]/10 px-2 py-0.5 font-mono font-bold text-[#8B95FF]">
+                      {tier.ratePct}% marginal
+                    </span>
+                  </div>
+                  <p className="mt-2 font-mono text-[11px] text-zinc-400">
+                    Sample {formatCents(sampleGross)} gross →{' '}
+                    <span className="text-emerald-300 font-semibold">{formatCents(sampleCommission)}</span> payout
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
 

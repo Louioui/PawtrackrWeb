@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { isDevicePasskeyRevoked } from './adversarial-guardrails.ts';
 import { isLiveStaffRole, LiveStaffRole } from './workflow-context.ts';
 
 export type VerifiedStaffContext = {
@@ -25,6 +26,16 @@ export async function requireActiveStaffSession(
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key || !url.startsWith('https://')) {
     return { ok: false, response: noStoreJson({ error: `${featureLabel} are not configured.` }, 503) };
+  }
+  const deviceId = req.headers.get('x-pawtrackr-device-id')?.trim();
+  if (deviceId && isDevicePasskeyRevoked(deviceId)) {
+    return {
+      ok: false,
+      response: noStoreJson(
+        { error: 'Hardware passkey for this device has been revoked. Contact salon owner.', code: 'DEVICE_REVOKED' },
+        403,
+      ),
+    };
   }
   const match = /^Bearer ([A-Za-z0-9._~-]+)$/.exec(req.headers.get('authorization') ?? '');
   if (!match) {

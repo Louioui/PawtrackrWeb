@@ -118,6 +118,21 @@ class SovereignStateStore {
   }
 
   public setTenantLock(tenantId: string, locked: boolean, reason?: string) {
+    const MAX_LOCKED_TENANTS = 2_000;
+    if (!this.lockedTenants.has(tenantId) && this.lockedTenants.size >= MAX_LOCKED_TENANTS) {
+      for (const [id, entry] of this.lockedTenants) {
+        if (!entry.locked) {
+          this.lockedTenants.delete(id);
+          if (this.lockedTenants.size < MAX_LOCKED_TENANTS) break;
+        }
+      }
+      while (this.lockedTenants.size >= MAX_LOCKED_TENANTS) {
+        const oldest = this.lockedTenants.keys().next().value;
+        if (oldest === undefined) break;
+        this.lockedTenants.delete(oldest);
+      }
+    }
+    this.lockedTenants.delete(tenantId);
     this.lockedTenants.set(tenantId, {
       locked,
       reason: reason || (locked ? 'Administrative lock applied by Sovereign Master' : undefined),
@@ -179,13 +194,29 @@ export function getSovereignState(): SovereignStateStore {
 }
 
 /**
+ * Constant-time UTF-8 comparison to eliminate timing side-channels without Node-only imports.
+ */
+function constantTimeStringEquals(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+  const maxLen = Math.max(aBytes.length, bBytes.length);
+  let diff = aBytes.length ^ bBytes.length;
+  for (let i = 0; i < maxLen; i += 1) {
+    diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+/**
  * Validate incoming Sovereign Master Authorization Header or Token
  */
 export function validateSovereignKey(key: string | null | undefined): boolean {
   if (!key) return false;
   const cleanKey = key.trim().replace(/^Bearer\s+/i, '');
   const masterKey = (process.env.SOVEREIGN_MASTER_KEY || DEFAULT_SOVEREIGN_MASTER_KEY).trim();
-  return cleanKey === masterKey;
+  if (!cleanKey || !masterKey || cleanKey.length > 512) return false;
+  return constantTimeStringEquals(cleanKey, masterKey);
 }
 
 /**

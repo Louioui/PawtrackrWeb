@@ -92,12 +92,27 @@ export function TopNav() {
     },
   ];
 
-  if (pathname?.startsWith('/admin/sovereign-matrix')) {
+  const hasDedicatedLiveShell =
+    pathname === '/dashboard/operations/live' ||
+    pathname === '/dashboard/pos/live' ||
+    pathname === '/dashboard/payroll/live' ||
+    pathname === '/dashboard/waitlist/live' ||
+    pathname === '/dashboard/fleet/live' ||
+    pathname === '/dashboard/import/live' ||
+    pathname === '/dashboard/settings/live';
+
+  if (
+    pathname?.startsWith('/admin/sovereign-matrix') ||
+    pathname === '/fleet' ||
+    pathname === '/crm' ||
+    pathname === '/vault' ||
+    hasDedicatedLiveShell
+  ) {
     return null;
   }
 
-  // Pure Apple-Grade B2B Marketing Navigation for the Landing Page
-  if (pathname === '/') {
+  // Pure Apple-Grade B2B Marketing Navigation for the Landing Page & Privacy Policy
+  if (pathname === '/' || pathname === '/privacy') {
     return (
       <header className="sticky top-0 z-50 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6 lg:px-8">
@@ -125,37 +140,37 @@ export function TopNav() {
           {/* Marketing Navigation Links */}
           <nav className="hidden md:flex items-center gap-1 rounded-2xl border border-white/[0.07] bg-obsidian-800/60 p-1 backdrop-blur-md">
             <a
-              href="#features"
+              href={pathname === '/' ? '#bento-architecture' : '/#bento-architecture'}
               className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
             >
-              Features
+              Architecture
             </a>
             <a
-              href="#demo-tour"
+              href={pathname === '/' ? '#product-previews' : '/#product-previews'}
               className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
             >
-              Interactive Tour
+              Previews
             </a>
             <a
-              href="#availability"
+              href={pathname === '/' ? '#demo-tour' : '/#demo-tour'}
+              className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+            >
+              Workflow Tour
+            </a>
+            <a
+              href={pathname === '/' ? '#availability' : '/#availability'}
               className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
             >
               Availability Engine
             </a>
             <a
-              href="#workflow"
-              className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
-            >
-              Workflow
-            </a>
-            <a
-              href="#pricing"
+              href={pathname === '/' ? '#pricing' : '/#pricing'}
               className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
             >
               Pricing
             </a>
             <a
-              href="#faq"
+              href={pathname === '/' ? '#faq' : '/#faq'}
               className="rounded-xl px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
             >
               FAQ
@@ -267,6 +282,8 @@ export function TopNav() {
   // Pure Apple-Grade Customer-Facing Header for Public Booking & Client Portals
   if (pathname?.startsWith('/portal') || pathname?.startsWith('/client')) {
     const isBookingPortal = pathname.startsWith('/portal');
+    const isLivePortal = pathname.startsWith('/portal/live') || pathname.startsWith('/portal/manage');
+    const isManagePage = pathname.includes('/manage');
     return (
       <header className="sticky top-0 z-40 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
@@ -298,7 +315,7 @@ export function TopNav() {
             <Link
               href="/portal/live"
               className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
-                isBookingPortal
+                isBookingPortal && !isManagePage
                   ? 'border border-periwinkle-500/40 bg-periwinkle-500/15 text-white shadow-periwinkle-glow'
                   : 'text-zinc-400 hover:text-white'
               }`}
@@ -306,17 +323,31 @@ export function TopNav() {
               <Globe className="h-3.5 w-3.5" />
               <span>Online Booking</span>
             </Link>
-            <Link
-              href="/client/cl-101"
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
-                !isBookingPortal
-                  ? 'border border-periwinkle-500/40 bg-periwinkle-500/15 text-white shadow-periwinkle-glow'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Heart className="h-3.5 w-3.5" />
-              <span>Pet Passport</span>
-            </Link>
+            {isLivePortal ? (
+              <Link
+                href="/portal/manage"
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                  isManagePage
+                    ? 'border border-periwinkle-500/40 bg-periwinkle-500/15 text-white shadow-periwinkle-glow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Heart className="h-3.5 w-3.5" />
+                <span>Manage Booking</span>
+              </Link>
+            ) : (
+              <Link
+                href="/client/cl-101"
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                  !isBookingPortal
+                    ? 'border border-periwinkle-500/40 bg-periwinkle-500/15 text-white shadow-periwinkle-glow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Heart className="h-3.5 w-3.5" />
+                <span>Pet Passport</span>
+              </Link>
+            )}
           </nav>
 
           {/* Salon Staff Sign In */}
@@ -458,7 +489,7 @@ export function TopNav() {
               </kbd>
             </button>
 
-            {!isSourceBacked && <button
+            {!isLive && <button
               type="button"
               title="Preview the offline status badge; this does not disconnect the browser"
               onClick={() => setOfflineVanSim((prev) => !prev)}
@@ -482,13 +513,13 @@ export function TopNav() {
             </button>}
 
             <Link
-              href="/signup"
+              href={isLive ? '/login' : '/signup'}
               className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-periwinkle-400 px-3 py-2 text-xs font-bold text-obsidian-950 transition hover:bg-periwinkle-300"
             >
               <span>Salon sign in</span>
             </Link>
 
-            {!isSourceBacked && <Link
+            {!isLive && <Link
               href="/login"
               aria-label="Station PIN"
               className="inline-flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-obsidian-800 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:border-periwinkle-500/40 hover:text-white"

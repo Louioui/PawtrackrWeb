@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     return noStoreJson({ error: 'Valid client_id and pet_id are required.' }, 400);
   }
 
-  const signerName = typeof body.signer_name === 'string' ? body.signer_name.trim() : '';
+  const signerName = typeof body.signer_name === 'string' ? body.signer_name.trim().slice(0, 120) : '';
   if (!signerName) {
     return noStoreJson({ error: 'Signer name is required.' }, 400);
   }
@@ -36,19 +36,52 @@ export async function POST(req: NextRequest) {
     return noStoreJson({ error: 'Terms must be agreed to sign the waiver.' }, 400);
   }
 
+  const businessId = auth.ctx.membership.business_id;
+
+  // Verify client_id and pet_id belong to this tenant (cross-tenant IDOR prevention)
+  const [{ data: clientRow }, { data: petRow }] = await Promise.all([
+    auth.ctx.supabase
+      .from('clients')
+      .select('id')
+      .eq('id', clientId)
+      .eq('business_id', businessId)
+      .maybeSingle(),
+    auth.ctx.supabase
+      .from('pets')
+      .select('id, client_id')
+      .eq('id', petId)
+      .eq('business_id', businessId)
+      .maybeSingle(),
+  ]);
+
+  if (!clientRow || !petRow || petRow.client_id !== clientId) {
+    return noStoreJson({ error: 'Client or pet record not found for this salon.' }, 404);
+  }
+
   const termsText =
     typeof body.agreed_terms_text === 'string' && body.agreed_terms_text.trim()
-      ? body.agreed_terms_text.trim()
+      ? body.agreed_terms_text.trim().slice(0, 4000)
       : 'Standard Pawtrackr Salon Liability Agreement: Client authorizes standard grooming procedures, matted coat care, and emergency veterinary intervention if medically required.';
 
   const waiverTypes = Array.isArray(body.waiver_types) && body.waiver_types.every((t) => typeof t === 'string')
-    ? (body.waiver_types as string[])
+    ? (body.waiver_types as string[]).slice(0, 12).map((t) => t.slice(0, 64))
     : ['matted_coat', 'general_care'];
 
+  if (typeof body.signature_data_url === 'string' && body.signature_data_url.length > 250_000) {
+    return noStoreJson({ error: 'Signature image payload exceeds 250KB maximum.' }, 413);
+  }
+
+  const escapedSigner = signerName
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
   const signatureDataUrl =
-    typeof body.signature_data_url === 'string' && body.signature_data_url.startsWith('data:image/')
+    typeof body.signature_data_url === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(body.signature_data_url)
       ? body.signature_data_url
-      : `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"><text y="20">${encodeURIComponent(signerName)}</text></svg>`;
+      : `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg"><text y="20">${escapedSigner}</text></svg>`)}`;
 
   const hashContent = `${auth.ctx.membership.business_id}:${clientId}:${petId}:${signerName}:${new Date().toISOString()}`;
   const verificationHash = createHash('sha256').update(hashContent).digest('hex');

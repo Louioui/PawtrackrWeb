@@ -64,24 +64,29 @@ export async function POST(req: NextRequest) {
     const action = body?.action;
     const state = getSovereignState();
 
+    const noStore = { headers: { 'Cache-Control': 'no-store' } };
+
     if (action === 'verify_key') {
-      return NextResponse.json({ success: true, valid: true });
+      return NextResponse.json({ success: true, valid: true }, noStore);
     }
 
     if (action === 'toggle_tenant_lock') {
       const { tenantId, locked, reason } = body;
-      if (!tenantId || typeof locked !== 'boolean') {
+      if (!tenantId || typeof tenantId !== 'string' || tenantId.length > 120 || typeof locked !== 'boolean') {
         return NextResponse.json(
           { error: 'Missing tenantId or invalid locked boolean.' },
-          { status: 400 }
+          { status: 400, ...noStore }
         );
       }
-      state.setTenantLock(tenantId, locked, reason);
-      return NextResponse.json({
-        success: true,
-        message: `Tenant ${tenantId} ${locked ? 'locked' : 'unlocked'} successfully.`,
-        telemetry: getSovereignTelemetry(),
-      });
+      state.setTenantLock(tenantId, locked, typeof reason === 'string' ? reason.slice(0, 240) : undefined);
+      return NextResponse.json(
+        {
+          success: true,
+          message: `Tenant ${tenantId} ${locked ? 'locked' : 'unlocked'} successfully.`,
+          telemetry: getSovereignTelemetry(),
+        },
+        noStore
+      );
     }
 
     if (action === 'toggle_global_maintenance') {
@@ -89,15 +94,18 @@ export async function POST(req: NextRequest) {
       if (typeof enabled !== 'boolean') {
         return NextResponse.json(
           { error: 'Missing or invalid enabled boolean.' },
-          { status: 400 }
+          { status: 400, ...noStore }
         );
       }
-      state.setGlobalMaintenance(enabled, reason);
-      return NextResponse.json({
-        success: true,
-        message: `Global maintenance mode ${enabled ? 'enabled' : 'disabled'}.`,
-        telemetry: getSovereignTelemetry(),
-      });
+      state.setGlobalMaintenance(enabled, typeof reason === 'string' ? reason.slice(0, 240) : undefined);
+      return NextResponse.json(
+        {
+          success: true,
+          message: `Global maintenance mode ${enabled ? 'enabled' : 'disabled'}.`,
+          telemetry: getSovereignTelemetry(),
+        },
+        noStore
+      );
     }
 
     if (action === 'run_audit') {
@@ -108,16 +116,19 @@ export async function POST(req: NextRequest) {
         message: `On-demand system audit executed: Score ${auditResult.overallScore}/100, 0 vulnerabilities detected.`,
         mitigated: true,
       });
-      return NextResponse.json({
-        success: true,
-        audit: auditResult,
-        telemetry: getSovereignTelemetry(),
-      });
+      return NextResponse.json(
+        {
+          success: true,
+          audit: auditResult,
+          telemetry: getSovereignTelemetry(),
+        },
+        noStore
+      );
     }
 
-    return NextResponse.json({ error: 'Unknown action requested.' }, { status: 400 });
+    return NextResponse.json({ error: 'Unknown action requested.' }, { status: 400, ...noStore });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Invalid request';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: msg }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   }
 }

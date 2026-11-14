@@ -109,10 +109,10 @@ export default function DigitalAssetVaultPage() {
             </div>
 
             <Link
-              href="/dashboard"
+              href="/dashboard/operations/live"
               className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[0.08]"
             >
-              Dashboard
+              Live Floor
             </Link>
           </div>
         </div>

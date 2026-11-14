@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { generateSignedShortLink } from '@/lib/adversarial-guardrails';
 import { noStoreJson, requireActiveStaffSession } from '@/lib/live-auth';
 import { formatItemizedReceipt } from '@/lib/live-pos';
 
@@ -19,10 +20,13 @@ export async function GET(
     return noStoreJson({ error: 'Valid transaction UUID is required.' }, 400);
   }
 
+  const businessId = auth.ctx.membership.business_id;
+
   const { data: tx, error: txError } = await auth.ctx.supabase
     .from('transactions')
     .select(`
       id,
+      business_id,
       amount,
       subtotal,
       discount,
@@ -45,6 +49,7 @@ export async function GET(
         slug
       )
     `)
+    .eq('business_id', businessId)
     .eq('id', id)
     .maybeSingle();
 
@@ -52,7 +57,16 @@ export async function GET(
     return noStoreJson({ error: 'Transaction not found.' }, 404);
   }
 
-  // Ensure type safety when reading nested joins
+  if (tx.settlement_status !== 'settled' && tx.settlement_status !== 'refunded') {
+    return noStoreJson(
+      {
+        error: `Itemized receipts are only issued for settled payments (current status: ${tx.settlement_status}).`,
+        code: 'RECEIPT_UNSETTLED',
+      },
+      409,
+    );
+  }
+
   const visitData = tx.visits as unknown as {
     id: string;
     service_package: string;
@@ -92,5 +106,16 @@ export async function GET(
     },
   });
 
-  return noStoreJson({ ok: true, receipt }, 200);
+  const signingSecret =
+    process.env.PAWTRACKR_RECEIPT_SIGNING_SECRET || `pawtrackr_receipt_${businessId}`;
+  const signedShareUrl = generateSignedShortLink({
+    domain: 'app.pawtrackr.live',
+    path: `/r/${tx.id}`,
+    salonId: businessId,
+    visitId: visitData?.id || tx.id,
+    expiresInSeconds: 30 * 86_400,
+    secretKey: signingSecret,
+  });
+
+  return noStoreJson({ ok: true, receipt, signedShareUrl }, 200);
 }

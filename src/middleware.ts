@@ -4,12 +4,15 @@ import { NextResponse } from 'next/server';
 import type { NextFetchEvent, NextRequest } from 'next/server';
 import { apiRateLimitPolicy, BoundedLocalRateLimiter } from '@/lib/api-rate-limit';
 import type { ApiRateLimitResult } from '@/lib/api-rate-limit';
+import { parseOrCreateTraceContext } from '@/lib/telemetry';
 
 // ============================================================================
-// PAWTRACKR WEB — EDGE SECURITY, RATE LIMITING & CUSTOM DOMAIN MIDDLEWARE
+// PAWTRACKR WEB — EDGE SECURITY, RATE LIMITING, W3C TRACING & DOMAIN MIDDLEWARE
 // Covers Roadmap Items #3 (Rate Limiting), #36 (White-Label Custom Domains),
-// and #45 (XSS / CSRF / Clickjacking Protection).
+// #45 (XSS / CSRF / Clickjacking Protection), and TRC-01 (W3C OpenTelemetry).
 // ============================================================================
+
+const SAFE_TENANT_SLUG = /^[a-z0-9-]{1,64}$/;
 
 const localRateLimiter = new BoundedLocalRateLimiter();
 const upstashUrl = process.env.UPSTASH_REDIS_REST_URL?.trim();
@@ -18,8 +21,14 @@ const redis = upstashUrl && upstashToken ? new Redis({ url: upstashUrl, token: u
 const distributedRateLimiters = redis ? {
   'public-booking-write': new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(8, '10 m'),
     prefix: 'pawtrackr:ratelimit:public-booking-write', timeout: 1_000 }),
+  'public-booking-manage': new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(20, '10 m'),
+    prefix: 'pawtrackr:ratelimit:public-booking-manage', timeout: 1_000 }),
   'public-availability': new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(120, '1 m'),
     prefix: 'pawtrackr:ratelimit:public-availability', timeout: 1_000 }),
+  'waitlist-claim': new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(15, '10 m'),
+    prefix: 'pawtrackr:ratelimit:waitlist-claim', timeout: 1_000 }),
+  'sovereign-admin': new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(20, '10 m'),
+    prefix: 'pawtrackr:ratelimit:sovereign-admin', timeout: 1_000 }),
   onboarding: new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(12, '10 m'),
     prefix: 'pawtrackr:ratelimit:onboarding', timeout: 1_000 }),
   'payment-intent': new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(30, '1 m'),
@@ -35,12 +44,32 @@ const CUSTOM_DOMAIN_MAP: Record<string, string> = {
   'book.splashmobile.live': 'splash-grooming',
 };
 
+function sanitizeTenantSlugHeader(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  const normalized = decoded.trim().toLowerCase();
+  return SAFE_TENANT_SLUG.test(normalized) ? normalized : null;
+}
+
 function dataMode(pathname: string, method: string) {
-  const isWrite = method === 'POST' || method === 'PATCH' || method === 'DELETE';
+  if (pathname === '/api/health') {
+    return 'synthetic-canary';
+  }
+
+  const isWrite = method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE';
   const isStaffApi =
     pathname.startsWith('/api/reservations') ||
     pathname.startsWith('/api/analytics') ||
     pathname.startsWith('/api/clients') ||
+    pathname.startsWith('/api/pets') ||
+    pathname.startsWith('/api/media') ||
+    pathname.startsWith('/api/inventory') ||
+    pathname.startsWith('/api/voice') ||
     pathname.startsWith('/api/settings') ||
     pathname.startsWith('/api/shifts') ||
     pathname.startsWith('/api/stations') ||
@@ -63,7 +92,10 @@ function dataMode(pathname: string, method: string) {
 
   const isStaffPage =
     (pathname.startsWith('/dashboard/') && (pathname.endsWith('/live') || pathname.includes('/live/'))) ||
-    pathname === '/signup';
+    pathname === '/signup' ||
+    pathname === '/fleet' ||
+    pathname === '/crm' ||
+    pathname === '/vault';
 
   if (isStaffApi) {
     return isWrite ? 'authenticated-write' : 'authenticated-read';
@@ -74,7 +106,7 @@ function dataMode(pathname: string, method: string) {
   if (pathname === '/api/webhooks/stripe') {
     return 'verified-webhook';
   }
-  if (pathname.startsWith('/api/public/')) {
+  if (pathname.startsWith('/api/public/') || pathname === '/portal/manage') {
     return 'public-booking';
   }
   if (pathname.startsWith('/portal/live')) {
@@ -105,10 +137,10 @@ export async function middleware(req: NextRequest, event: NextFetchEvent) {
   const clientIp =
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1';
   const mode = dataMode(pathname, req.method);
+  const trace = parseOrCreateTraceContext(req.headers);
 
   // 1. Distributed sliding-window limiter, with a bounded local fallback for
-  // development and brief provider failures. Production configuration checks
-  // require Upstash, so a release cannot silently rely on the local map.
+  // development and brief provider failures.
   const policy = apiRateLimitPolicy(pathname, req.method);
   let rateResult: ApiRateLimitResult | null = null;
   let rateMode: 'distributed' | 'distributed-timeout' | 'local' | 'local-fallback' = 'local';
@@ -134,7 +166,15 @@ export async function middleware(req: NextRequest, event: NextFetchEvent) {
     if (!rateResult.success) {
       const blocked = NextResponse.json(
         { error: 'Too many requests. Wait for the rate-limit window to reset and try again.' },
-        { status: 429, headers: { 'Cache-Control': 'no-store', 'X-Pawtrackr-Data-Mode': mode } },
+        {
+          status: 429,
+          headers: {
+            'Cache-Control': 'no-store',
+            'X-Pawtrackr-Data-Mode': mode,
+            traceparent: trace.traceparent,
+            'x-request-id': trace.requestId,
+          },
+        },
       );
       applyRateLimitHeaders(blocked, rateResult, rateMode);
       return blocked;
@@ -146,26 +186,40 @@ export async function middleware(req: NextRequest, event: NextFetchEvent) {
   if (mappedSalonSlug && pathname === '/') {
     const rewriteUrl = req.nextUrl.clone();
     rewriteUrl.pathname = `/portal/${mappedSalonSlug}`;
-    return NextResponse.rewrite(rewriteUrl);
+    const rewriteRes = NextResponse.rewrite(rewriteUrl);
+    rewriteRes.headers.set('traceparent', trace.traceparent);
+    rewriteRes.headers.set('x-request-id', trace.requestId);
+    return rewriteRes;
   }
 
-  const res = NextResponse.next();
+  // Propagate W3C traceparent and x-request-id into downstream route handlers
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set('traceparent', trace.traceparent);
+  requestHeaders.set('x-request-id', trace.requestId);
 
-  // 3. Hardened Multi-Tenant & OWASP Security Headers (#45)
+  const res = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
+
+  // 3. Hardened Multi-Tenant, Tracing & OWASP Security Headers (#45, TRC-01)
   res.headers.set('x-pawtrackr-data-mode', mode);
+  res.headers.set('traceparent', trace.traceparent);
+  res.headers.set('x-request-id', trace.requestId);
   if (rateResult) applyRateLimitHeaders(res, rateResult, rateMode);
 
-  // Resolve tenant slug from query or portal route for downstream SSR consumption
+  // Sanitize tenant slug strictly to ISO-8859-1 safe [a-z0-9-] before calling Headers.set
   if (pathname.startsWith('/portal/')) {
-    const slug = pathname.split('/')[2];
-    if (slug) {
-      res.headers.set('x-pawtrackr-tenant-slug', slug);
+    const safeSlug = sanitizeTenantSlugHeader(pathname.split('/')[2]);
+    if (safeSlug && safeSlug !== 'live' && safeSlug !== 'manage') {
+      res.headers.set('x-pawtrackr-tenant-slug', safeSlug);
     }
-  } else if (searchParams.get('tenant')) {
-    res.headers.set(
-      'x-pawtrackr-tenant-slug',
-      searchParams.get('tenant') ?? 'bespoke-grooming'
-    );
+  } else if (searchParams.has('tenant')) {
+    const safeSlug = sanitizeTenantSlugHeader(searchParams.get('tenant'));
+    if (safeSlug) {
+      res.headers.set('x-pawtrackr-tenant-slug', safeSlug);
+    }
   }
 
   return res;

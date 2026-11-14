@@ -1,5 +1,14 @@
 export type ApiRateLimitPolicy = {
-  id: 'public-booking-write' | 'public-availability' | 'onboarding' | 'payment-intent' | 'billing-checkout' | 'api';
+  id:
+    | 'public-booking-write'
+    | 'public-booking-manage'
+    | 'public-availability'
+    | 'waitlist-claim'
+    | 'sovereign-admin'
+    | 'onboarding'
+    | 'payment-intent'
+    | 'billing-checkout'
+    | 'api';
   limit: number;
   windowMs: number;
   duration: '1 m' | '10 m';
@@ -17,11 +26,24 @@ const tenMinutes = 10 * oneMinute;
 
 export function apiRateLimitPolicy(pathname: string, method: string): ApiRateLimitPolicy | null {
   if (!pathname.startsWith('/api/')) return null;
+  // Stripe webhooks share egress IPs across all tenants and are verified via HMAC + DB event_id nonce.
+  if (pathname === '/api/webhooks/stripe') {
+    return null;
+  }
   if (pathname === '/api/public/bookings' && method === 'POST') {
     return { id: 'public-booking-write', limit: 8, windowMs: tenMinutes, duration: '10 m' };
   }
+  if (pathname.startsWith('/api/public/bookings/manage')) {
+    return { id: 'public-booking-manage', limit: 20, windowMs: tenMinutes, duration: '10 m' };
+  }
   if (pathname === '/api/public/availability' && method === 'GET') {
     return { id: 'public-availability', limit: 120, windowMs: oneMinute, duration: '1 m' };
+  }
+  if (pathname.startsWith('/api/waitlist/offers/')) {
+    return { id: 'waitlist-claim', limit: 15, windowMs: tenMinutes, duration: '10 m' };
+  }
+  if (pathname === '/api/admin/sovereign-matrix') {
+    return { id: 'sovereign-admin', limit: 20, windowMs: tenMinutes, duration: '10 m' };
   }
   if (pathname === '/api/onboarding') {
     return { id: 'onboarding', limit: 12, windowMs: tenMinutes, duration: '10 m' };

@@ -185,15 +185,28 @@ export function parseBookingConfirmation(value: unknown): PublicBookingConfirmat
 // substitute for a shared store once the app runs on more than one instance.
 // The database also caps bookings per phone and per salon (migration 0018).
 export function createRateLimiter(limit: number, windowMs: number, now: () => number = Date.now) {
+  const MAX_KEYS = 5_000;
   const hits = new Map<string, { count: number; windowStart: number }>();
   return (key: string): boolean => {
     const at = now();
-    if (hits.size > 5000) {
-      for (const [stored, record] of hits) if (at - record.windowStart > windowMs) hits.delete(stored);
-    }
     const record = hits.get(key);
-    if (!record || at - record.windowStart > windowMs) { hits.set(key, { count: 1, windowStart: at }); return true; }
-    record.count += 1;
+    if (!record || at - record.windowStart > windowMs) {
+      if (hits.size >= MAX_KEYS && !hits.has(key)) {
+        for (const [stored, existing] of hits) {
+          if (at - existing.windowStart > windowMs) hits.delete(stored);
+          if (hits.size < MAX_KEYS) break;
+        }
+        while (hits.size >= MAX_KEYS) {
+          const oldest = hits.keys().next().value;
+          if (oldest === undefined) break;
+          hits.delete(oldest);
+        }
+      }
+      hits.delete(key);
+      hits.set(key, { count: 1, windowStart: at });
+      return true;
+    }
+    record.count = Math.min(record.count + 1, limit + 1);
     return record.count <= limit;
   };
 }

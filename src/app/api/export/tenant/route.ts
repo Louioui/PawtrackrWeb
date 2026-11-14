@@ -46,7 +46,9 @@ export async function GET(req: NextRequest) {
       const { data: clients } = await auth.ctx.supabase
         .from('clients')
         .select('id, name, phone, email, address, notes, created_at')
-        .order('name', { ascending: true });
+        .eq('business_id', businessId)
+        .order('name', { ascending: true })
+        .limit(5000);
 
       const headers = ['id', 'name', 'phone', 'email', 'address', 'notes', 'created_at'];
       const csvContent = formatScopedCsv(headers, (clients || []) as Record<string, unknown>[]);
@@ -66,7 +68,9 @@ export async function GET(req: NextRequest) {
     const { data: visits } = await auth.ctx.supabase
       .from('visits')
       .select('id, scheduled_time, duration_minutes, service_package, total_amount, status, curbside_status, curbside_address, client:clients(name, phone), pet:pets(name, breed)')
-      .order('scheduled_time', { ascending: false });
+      .eq('business_id', businessId)
+      .order('scheduled_time', { ascending: false })
+      .limit(5000);
 
     const flattened = (visits || []).map((v: Record<string, unknown>) => {
       const c = (v.client as Record<string, unknown>) || {};
@@ -100,14 +104,14 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Full JSON Tenant Archive
+  // Full JSON Tenant Archive — strictly scoped to businessId and bounded to prevent heap OOM
   const [bRes, sRes, cRes, pRes, vRes, tRes] = await Promise.all([
-    auth.ctx.supabase.from('businesses').select('*').limit(1).single(),
-    auth.ctx.supabase.from('staff_members').select('id, name, email, role, is_active, created_at'),
-    auth.ctx.supabase.from('clients').select('*'),
-    auth.ctx.supabase.from('pets').select('*'),
-    auth.ctx.supabase.from('visits').select('*'),
-    auth.ctx.supabase.from('transactions').select('*'),
+    auth.ctx.supabase.from('businesses').select('*').eq('id', businessId).limit(1).maybeSingle(),
+    auth.ctx.supabase.from('staff_members').select('id, name, email, role, is_active, created_at').eq('business_id', businessId).limit(500),
+    auth.ctx.supabase.from('clients').select('*').eq('business_id', businessId).limit(5000),
+    auth.ctx.supabase.from('pets').select('*').eq('business_id', businessId).limit(5000),
+    auth.ctx.supabase.from('visits').select('*').eq('business_id', businessId).limit(5000),
+    auth.ctx.supabase.from('transactions').select('*').eq('business_id', businessId).limit(5000),
   ]);
 
   const jsonArchive = formatTenantArchiveJson({

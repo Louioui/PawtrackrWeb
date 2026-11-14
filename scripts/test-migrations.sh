@@ -1850,5 +1850,178 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub', '', true);
 END $$;
 
+-- ----------------------------------------------------------------------------
+-- 0034: ADVERSARIAL HARDENING & ENTERPRISE DATABASE INVARIANTS VERIFICATION
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_biz_a constant uuid := '11111111-1111-4111-8111-111111111111';
+  v_biz_b constant uuid := '22222222-2222-4222-8222-222222222222';
+  v_owner_a uuid;
+  v_groomer_a uuid;
+  v_bather_a uuid;
+  v_station_a uuid;
+  v_client_a uuid;
+  v_pet_a uuid;
+  v_slot timestamptz := private.salon_local_instant(CURRENT_DATE + 30, '10:00', 'America/Los_Angeles');
+  v_visit_1 uuid;
+  v_visit_card uuid;
+  v_wl_e1 uuid;
+  v_wl_e2 uuid;
+  v_lookup jsonb;
+  v_sku_res jsonb;
+  v_tx_split jsonb;
+  v_tx_split_replay jsonb;
+  v_tx_split_id uuid;
+  v_prog_comm bigint;
+BEGIN
+  SELECT id INTO v_owner_a FROM public.staff_members WHERE business_id = v_biz_a AND role = 'owner' LIMIT 1;
+  INSERT INTO public.staff_members (business_id, name, role, is_active)
+  VALUES (v_biz_a, 'Hardened Groomer', 'groomer', true) RETURNING id INTO v_groomer_a;
+  INSERT INTO public.staff_members (business_id, auth_user_id, name, role, is_active)
+  VALUES (v_biz_a, 'ffffffff-0034-4000-8000-000000000034', 'Hardened Bather', 'bather', true) RETURNING id INTO v_bather_a;
+  INSERT INTO public.salon_stations (business_id, name, station_type, is_active)
+  VALUES (v_biz_a, 'Hardened Table A', 'table', true) RETURNING id INTO v_station_a;
+
+  INSERT INTO public.clients (business_id, name, phone)
+  VALUES (v_biz_a, 'Lookup Client', '3125550199') RETURNING id INTO v_client_a;
+  INSERT INTO public.pets (business_id, client_id, name, breed, behavior_notes, behavior_tags)
+  VALUES (v_biz_a, v_client_a, 'Rex', 'Husky', 'Gentle dog, slightly vocal during dryer', ARRAY['vocal'])
+  RETURNING id INTO v_pet_a;
+
+  -- 1. SCH-01: Staff GiST exclusion blocks double-booking across checked_in / drying / quality_check / paused / change_pending
+  INSERT INTO public.visits (
+    business_id, client_id, pet_id, staff_id, station_id,
+    service_package, total_amount, scheduled_time, duration_minutes, booking_buffer_minutes,
+    status, safety_notes_acknowledged_at
+  ) VALUES (
+    v_biz_a, v_client_a, v_pet_a, v_groomer_a, v_station_a,
+    'Full Groom', 95.00, v_slot, 60, 15,
+    'checked_in', now()
+  ) RETURNING id INTO v_visit_1;
+
+  BEGIN
+    INSERT INTO public.visits (
+      business_id, client_id, pet_id, staff_id,
+      service_package, total_amount, scheduled_time, duration_minutes, booking_buffer_minutes, status
+    ) VALUES (
+      v_biz_a, v_client_a, v_pet_a, v_groomer_a,
+      'Overlap During CheckIn', 65.00, v_slot + interval '15 minutes', 45, 15, 'booked'
+    );
+    RAISE EXCEPTION 'SCH-01 regression: allowed staff overlap against checked_in visit';
+  EXCEPTION WHEN exclusion_violation THEN NULL;
+  END;
+
+  -- 2. 0026 Bug Fix: advance_visit_stage succeeds when pets.behavior_notes is non-empty prose
+  PERFORM set_config('request.jwt.claim.sub', 'ffffffff-0034-4000-8000-000000000034', true);
+  PERFORM public.advance_visit_stage(v_visit_1, 'drying', 'Towel dry complete', NULL);
+  IF (SELECT status FROM public.visits WHERE id = v_visit_1) <> 'drying' THEN
+    RAISE EXCEPTION 'advance_visit_stage failed with non-empty behavior_notes';
+  END IF;
+
+  -- 3. 0033 Bug Fix: public_get_booking_by_reference succeeds using custom_settings->>time_zone
+  UPDATE public.visits SET status = 'booked' WHERE id = v_visit_1;
+  v_lookup := public.public_get_booking_by_reference('a', upper(substr(replace(v_visit_1::text, '-', ''), 1, 8)), '312-555-0199');
+  IF (v_lookup->>'visit_id')::uuid <> v_visit_1 THEN
+    RAISE EXCEPTION 'public_get_booking_by_reference failed after 0033 time_zone fix: %', v_lookup;
+  END IF;
+
+  -- 4. Waitlist pending hold GiST exclusion prevents overlapping pending offers for same groomer
+  PERFORM set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-4000-8000-000000000000', true);
+  v_wl_e1 := (public.create_waitlist_entry(v_client_a, v_pet_a, 'Bath', v_groomer_a)->>'entry_id')::uuid;
+  v_wl_e2 := (public.create_waitlist_entry(v_client_a, v_pet_a, 'Bath', v_groomer_a)->>'entry_id')::uuid;
+  PERFORM public.generate_waitlist_offer(v_wl_e1, v_slot + interval '3 hours', v_slot + interval '4 hours', v_groomer_a, v_station_a, 120);
+  BEGIN
+    PERFORM public.generate_waitlist_offer(v_wl_e2, v_slot + interval '3 hours 30 minutes', v_slot + interval '4 hours 30 minutes', v_groomer_a, NULL, 120);
+    RAISE EXCEPTION 'Allowed overlapping pending waitlist slot hold on same groomer';
+  EXCEPTION WHEN SQLSTATE 'PW022' THEN NULL;
+  END;
+
+  -- 5. Cross-tenant BOLA block on calculate_payroll_summary
+  BEGIN
+    PERFORM * FROM public.calculate_payroll_summary(v_biz_b, CURRENT_DATE - 7, CURRENT_DATE, 'direct', 15.0);
+    RAISE EXCEPTION 'Cross-tenant calculate_payroll_summary BOLA was allowed';
+  EXCEPTION WHEN SQLSTATE 'P0058' THEN NULL;
+  END;
+
+  -- 6. Progressive marginal commission bracket calculation
+  v_prog_comm := public.calculate_progressive_commission_cents(
+    300000,
+    40.0,
+    '[{"up_to_cents": 200000, "rate_pct": 40}, {"up_to_cents": null, "rate_pct": 50}]'::jsonb
+  );
+  IF v_prog_comm <> 130000 THEN
+    RAISE EXCEPTION 'Progressive commission tier calculation wrong: expected 130000, got %', v_prog_comm;
+  END IF;
+
+  -- 7. Retail barcode atomic deduction + negative stock block (PW075)
+  INSERT INTO public.retail_inventory (business_id, sku, barcode, name, category, price_dollars, stock_quantity, reorder_threshold)
+  VALUES (v_biz_a, 'SKU-OAT-01', '012345678905', 'Oatmeal Coat Mist', 'shampoo', 24.00, 2, 1);
+
+  v_sku_res := public.deduct_retail_inventory_atomic('012345678905', 2);
+  IF (v_sku_res->>'stock_quantity')::int <> 0 OR (v_sku_res->>'low_stock_alert')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'deduct_retail_inventory_atomic returned wrong stock state: %', v_sku_res;
+  END IF;
+
+  BEGIN
+    PERFORM public.deduct_retail_inventory_atomic('012345678905', 1);
+    RAISE EXCEPTION 'deduct_retail_inventory_atomic allowed negative inventory';
+  EXCEPTION WHEN SQLSTATE 'PW075' THEN NULL;
+  END;
+
+  -- 8. Split-tender cent check, idempotent POS checkout replay, and cumulative over-refund cap (PW047)
+  UPDATE public.visits SET status = 'ready' WHERE id = v_visit_1;
+  BEGIN
+    PERFORM public.record_pos_checkout(
+      v_visit_1, 95.00, 0.00, 5.00, 10.00, 110.00, 'split', NULL, true,
+      'idem-bad-split-001', 5000, 0, 5000, 0
+    );
+    RAISE EXCEPTION 'Allowed unbalanced split-tender cent allocation';
+  EXCEPTION WHEN SQLSTATE 'PW041' THEN NULL;
+  END;
+
+  v_tx_split := public.record_pos_checkout(
+    v_visit_1, 95.00, 0.00, 5.00, 10.00, 110.00, 'split', NULL, true,
+    'idem-valid-split-001', 6000, 0, 5000, 0
+  );
+  v_tx_split_replay := public.record_pos_checkout(
+    v_visit_1, 95.00, 0.00, 5.00, 10.00, 110.00, 'split', NULL, true,
+    'idem-valid-split-001', 6000, 0, 5000, 0
+  );
+  v_tx_split_id := (v_tx_split->>'id')::uuid;
+  IF (v_tx_split_replay->>'id')::uuid <> v_tx_split_id OR (v_tx_split_replay->>'deduplicated')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'POS checkout idempotency replay failed: %', v_tx_split_replay;
+  END IF;
+
+  PERFORM public.process_visit_refund(v_tx_split_id, 60.00, 'Partial refund for matted coat goodwill adjustment');
+  BEGIN
+    PERFORM public.process_visit_refund(v_tx_split_id, 60.00, 'Second partial refund exceeding total transaction');
+    RAISE EXCEPTION 'process_visit_refund allowed cumulative over-refund above original amount';
+  EXCEPTION WHEN SQLSTATE 'PW047' THEN NULL;
+  END;
+
+  -- 9. Card checkout transitions visit from payment_pending -> paid upon verified Stripe webhook
+  INSERT INTO public.visits (
+    business_id, client_id, pet_id, staff_id,
+    service_package, total_amount, scheduled_time, duration_minutes, booking_buffer_minutes, status
+  ) VALUES (
+    v_biz_a, v_client_a, v_pet_a, v_groomer_a,
+    'Card Settlement Groom', 80.00, v_slot + interval '5 hours', 60, 15, 'ready'
+  ) RETURNING id INTO v_visit_card;
+
+  PERFORM public.record_pos_checkout(v_visit_card, 80.00, 0.00, 0.00, 10.00, 90.00, 'card', 'pi_0034_live_card', false);
+  IF (SELECT status FROM public.visits WHERE id = v_visit_card) <> 'payment_pending' THEN
+    RAISE EXCEPTION 'Card checkout did not place visit into payment_pending';
+  END IF;
+
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  IF public.apply_stripe_payment_event('evt_0034_card_1', 'payment_intent.succeeded', 'pi_0034_live_card', 9000, 'usd') <> 'settled' THEN
+    RAISE EXCEPTION 'apply_stripe_payment_event failed to settle card checkout';
+  END IF;
+  IF (SELECT status FROM public.visits WHERE id = v_visit_card) <> 'paid' THEN
+    RAISE EXCEPTION 'apply_stripe_payment_event did not transition visit from payment_pending to paid';
+  END IF;
+END $$;
+
 SQL
 printf 'Migration execution and basic tenant/RPC checks passed.\n'

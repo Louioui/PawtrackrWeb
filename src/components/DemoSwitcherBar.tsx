@@ -59,11 +59,15 @@ export function DemoSwitcherBar() {
   if (
     !pathname ||
     pathname === '/' ||
+    pathname === '/privacy' ||
     pathname === '/signup' ||
     pathname === '/welcome' ||
     pathname === '/login' ||
     pathname === '/forgot-password' ||
     pathname === '/reset-password' ||
+    pathname === '/fleet' ||
+    pathname === '/crm' ||
+    pathname === '/vault' ||
     pathname.startsWith('/dashboard/analytics') ||
     pathname.startsWith('/portal') ||
     pathname.startsWith('/client') ||

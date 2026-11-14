@@ -49,6 +49,11 @@ import { isLiveStaffRole, LiveStaffRole } from '@/lib/workflow-context';
 import ReportCardModal from '@/components/ReportCardModal';
 import CloseDayDrawer from '@/components/CloseDayDrawer';
 import CommunicationsDrawer from '@/components/CommunicationsDrawer';
+import {
+  enqueueOutboxMutation,
+  flushOfflineOutbox,
+  listOutboxMutations,
+} from '@/lib/offline-outbox';
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
 
@@ -121,8 +126,9 @@ export default function LiveOperationsPage() {
   // Care note draft map (keyed by visitId)
   const [careNotes, setCareNotes] = useState<Record<string, string>>({});
 
-  // Offline optimistic action log
+  // Offline optimistic action log & IndexedDB outbox depth
   const [offlineSyncAlert, setOfflineSyncAlert] = useState<string | null>(null);
+  const [outboxDepth, setOutboxDepth] = useState<number>(0);
 
   // Slice 4: Day Closeout, Report Cards & Communications
   const [showCloseDayDrawer, setShowCloseDayDrawer] = useState(false);
@@ -233,15 +239,54 @@ export default function LiveOperationsPage() {
     }
   }, [selectedDate]);
 
+  const replayIndexedDbOutbox = useCallback(async () => {
+    const token = await getAccessToken();
+    const pendingBefore = await listOutboxMutations(true);
+    setOutboxDepth(pendingBefore.length);
+    if (!token || pendingBefore.length === 0) return;
+
+    const result = await flushOfflineOutbox(async (record) => {
+      if (record.entityType !== 'visit_stage') return { ok: true };
+      const res = await fetch(record.endpoint, {
+        method: record.method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'x-idempotency-key': record.idempotencyKey,
+        },
+        body: JSON.stringify(record.payload),
+      });
+      if (res.ok) return { ok: true };
+      const body = (await res.json().catch(() => ({}))) as { error?: string; currentRecord?: Record<string, unknown> };
+      if (res.status === 409) {
+        return {
+          ok: false,
+          conflict: true,
+          serverRecord: body.currentRecord,
+          error: body.error ?? 'OCC version conflict',
+        };
+      }
+      return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+    });
+
+    setOutboxDepth(result.remainingCount);
+    if (result.flushedCount > 0) {
+      setOfflineSyncAlert(
+        `IndexedDB Outbox synced ${result.flushedCount} offline floor mutation(s) (${result.latestOccHash}).`
+      );
+    }
+  }, [getAccessToken]);
+
   useEffect(() => {
     void refresh();
+    void listOutboxMutations(true).then((items) => setOutboxDepth(items.length));
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh();
     }, 30_000);
 
     const onOnline = () => {
       setOnline(true);
-      void refresh();
+      void replayIndexedDbOutbox().then(() => refresh());
     };
     const onOffline = () => setOnline(false);
 
@@ -253,7 +298,7 @@ export default function LiveOperationsPage() {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
-  }, [refresh]);
+  }, [refresh, replayIndexedDbOutbox]);
 
   // Handle staff sign-in
   const signIn = async (event: FormEvent) => {
@@ -381,9 +426,32 @@ export default function LiveOperationsPage() {
     const client = getSupabaseClient();
     if (!client) return;
 
-    // Check offline resilience
+    // Check offline resilience — persist to IndexedDB outbox with SHA-256 OCC hash
     if (!navigator.onLine) {
-      setOfflineSyncAlert(`Offline: stage transition to ${targetStage} queued locally.`);
+      const careNote = careNotes[visit.id]?.trim() || null;
+      const queued = await enqueueOutboxMutation({
+        entityType: 'visit_stage',
+        entityId: visit.id,
+        endpoint: `/api/visits/${visit.id}/stage`,
+        method: 'POST',
+        baseVersion: visit.version,
+        payload: {
+          action: 'advance_stage',
+          target_stage: targetStage,
+          care_note: careNote,
+          client_version: visit.version,
+        },
+        baseSnapshot: {
+          target_stage: visit.status,
+          care_note: null,
+          client_version: visit.version,
+        },
+      });
+      const pending = await listOutboxMutations(true);
+      setOutboxDepth(pending.length);
+      setOfflineSyncAlert(
+        `Offline: ${targetStage} saved to IndexedDB outbox (${pending.length} pending • ${queued.occHash}).`
+      );
       // Optimistic local update
       setVisits((prev) =>
         prev.map((v) => (v.id === visit.id ? { ...v, status: targetStage, version: v.version + 1 } : v)),
@@ -656,15 +724,16 @@ export default function LiveOperationsPage() {
                 </button>
               </div>
 
-              {/* Online / Offline badge */}
+              {/* Online / Offline IndexedDB Outbox badge */}
               <div className="flex items-center gap-2 text-xs">
                 {online ? (
                   <span className="inline-flex items-center gap-1 text-emerald-400">
                     <Wifi className="h-3.5 w-3.5" /> Connected
+                    {outboxDepth > 0 ? ` · Outbox (${outboxDepth})` : ''}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-amber-400">
-                    <WifiOff className="h-3.5 w-3.5" /> Disconnected · Saving Locally
+                    <WifiOff className="h-3.5 w-3.5" /> Disconnected · IndexedDB Outbox ({outboxDepth} queued)
                   </span>
                 )}
               </div>

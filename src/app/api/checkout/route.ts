@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     if (!business_id || !visit_id) {
       return NextResponse.json(
         { error: 'business_id and visit_id are required for tenant isolation' },
-        { status: 400 }
+        { status: 400, headers: { 'Cache-Control': 'no-store' } }
       );
     }
 
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     const ledger = readServerLedger();
     const visit = ledger.visits.find((item) => item.id === visit_id && item.business_id === business_id);
     if (!visit) {
-      return NextResponse.json({ error: 'Demo visit not found for this salon.' }, { status: 404 });
+      return NextResponse.json({ error: 'Demo visit not found for this salon.' }, { status: 404, headers: { 'Cache-Control': 'no-store' } });
     }
     if (!canRecordDemoCheckout(visit, ledger.transactions)) {
       return NextResponse.json({ error: 'This demo visit already has a completed checkout.' }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
@@ -100,15 +100,18 @@ export async function POST(req: NextRequest) {
       ),
     });
 
-    return NextResponse.json({
-      ok: true,
-      transaction: demoTx,
-      mode: 'demo',
-      breakdown,
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        transaction: demoTx,
+        mode: 'demo',
+        breakdown,
+      },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Atomic POS Checkout Error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

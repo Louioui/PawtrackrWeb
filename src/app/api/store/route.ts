@@ -3,6 +3,8 @@ import { readServerLedger, writeServerLedger } from '@/lib/server-db';
 import { requireLocalDemoApi } from '@/lib/demo-boundary';
 import { asDemoStorePatch, demoStorePatchError } from '@/lib/demo-store-validation';
 
+const NO_STORE = { headers: { 'Cache-Control': 'no-store' } };
+
 export async function GET(req: NextRequest) {
   const blocked = requireLocalDemoApi();
   if (blocked) return blocked;
@@ -10,29 +12,35 @@ export async function GET(req: NextRequest) {
   const ledger = readServerLedger();
 
   if (businessId !== null) {
-    if (!businessId) return NextResponse.json({ error: 'business_id is required.' }, { status: 400 });
-    return NextResponse.json({
-      ok: true,
-      business_id: businessId,
-      store: {
-        configs: Object.hasOwn(ledger.configs, businessId)
-          ? { [businessId]: ledger.configs[businessId] }
-          : {},
-        clients: ledger.clients.filter((c) => c.business_id === businessId),
-        pets: ledger.pets.filter((p) => p.business_id === businessId),
-        visits: ledger.visits.filter((v) => v.business_id === businessId),
-        transactions: ledger.transactions.filter(
-          (t) => t.business_id === businessId
-        ),
-        updatedAt: ledger.updatedAt,
+    if (!businessId) return NextResponse.json({ error: 'business_id is required.' }, { status: 400, ...NO_STORE });
+    return NextResponse.json(
+      {
+        ok: true,
+        business_id: businessId,
+        store: {
+          configs: Object.hasOwn(ledger.configs, businessId)
+            ? { [businessId]: ledger.configs[businessId] }
+            : {},
+          clients: ledger.clients.filter((c) => c.business_id === businessId),
+          pets: ledger.pets.filter((p) => p.business_id === businessId),
+          visits: ledger.visits.filter((v) => v.business_id === businessId),
+          transactions: ledger.transactions.filter(
+            (t) => t.business_id === businessId
+          ),
+          updatedAt: ledger.updatedAt,
+        },
       },
-    });
+      NO_STORE
+    );
   }
 
-  return NextResponse.json({
-    ok: true,
-    store: ledger,
-  });
+  return NextResponse.json(
+    {
+      ok: true,
+      store: ledger,
+    },
+    NO_STORE
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -41,26 +49,29 @@ export async function POST(req: NextRequest) {
   try {
     const ifMatch = req.headers.get('if-match');
     if (!ifMatch || !/^\d+$/.test(ifMatch) || !Number.isSafeInteger(Number(ifMatch))) {
-      return NextResponse.json({ error: 'A current demo ledger revision is required.' }, { status: 428 });
+      return NextResponse.json({ error: 'A current demo ledger revision is required.' }, { status: 428, ...NO_STORE });
     }
     const body: unknown = await req.json();
     const validationError = demoStorePatchError(body);
     if (validationError) {
-      return NextResponse.json({ error: validationError }, { status: 400 });
+      return NextResponse.json({ error: validationError }, { status: 400, ...NO_STORE });
     }
     const current = readServerLedger();
     if (current.updatedAt !== Number(ifMatch)) {
-      return NextResponse.json({ error: 'Demo ledger changed. Local edits were not applied.', currentRevision: current.updatedAt }, { status: 409 });
+      return NextResponse.json({ error: 'Demo ledger changed. Local edits were not applied.', currentRevision: current.updatedAt }, { status: 409, ...NO_STORE });
     }
     const updated = writeServerLedger(asDemoStorePatch(body));
 
-    return NextResponse.json({
-      ok: true,
-      store: updated,
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        store: updated,
+      },
+      NO_STORE
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Failed to persist store';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500, ...NO_STORE });
   }
 }

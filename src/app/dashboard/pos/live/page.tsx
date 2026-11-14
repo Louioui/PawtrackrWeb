@@ -20,6 +20,9 @@ import {
   FileText,
   Search,
   Lock,
+  ScanBarcode,
+  ShoppingBag,
+  Split,
 } from 'lucide-react';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import LiveWorkspaceShell from '@/components/LiveWorkspaceShell';
@@ -32,7 +35,27 @@ import {
   ItemizedReceipt,
   POSTenderType,
 } from '@/lib/live-pos';
+import { fromCents, toCents } from '@/lib/pos-math';
+import { createBarcodeKeystrokeCollector, validateRetailBarcode } from '@/lib/barcode-scanner';
 import { LiveStaffRole } from '@/lib/workflow-context';
+
+type RetailCatalogItem = {
+  id: string;
+  sku: string;
+  barcode: string | null;
+  product_name: string;
+  unit_price: number;
+  unit_price_cents: number;
+  stock_quantity: number;
+  low_stock_alert?: boolean;
+};
+
+type RetailCartLine = {
+  barcodeOrSku: string;
+  productName: string;
+  unitPriceCents: number;
+  quantity: number;
+};
 
 type POSVisit = {
   id: string;
@@ -91,7 +114,14 @@ export default function LivePOSPage() {
   const [selectedTipPercent, setSelectedTipPercent] = useState<number | 'custom'>(15);
   const [customTipInput, setCustomTipInput] = useState('0.00');
   const [tenderType, setTenderType] = useState<POSTenderType>('cash');
+  const [splitCashInput, setSplitCashInput] = useState('0.00');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // HID Barcode Retail Inventory State
+  const [retailCatalog, setRetailCatalog] = useState<RetailCatalogItem[]>([]);
+  const [retailCart, setRetailCart] = useState<RetailCartLine[]>([]);
+  const [barcodeScanInput, setBarcodeScanInput] = useState('');
+  const [lastScannedBadge, setLastScannedBadge] = useState<string>('');
 
   // Modals
   const [activeReceipt, setActiveReceipt] = useState<ItemizedReceipt | null>(null);
@@ -249,6 +279,18 @@ export default function LivePOSPage() {
         setTransactions(formattedTx);
       }
 
+      // Fetch tenant retail inventory catalog for HID barcode checkout
+      const invRes = await fetch('/api/inventory', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (invRes.ok) {
+        const invJson = (await invRes.json()) as { items?: RetailCatalogItem[] };
+        if (Array.isArray(invJson.items)) {
+          setRetailCatalog(invJson.items);
+        }
+      }
+
       setPhase('ready');
     } catch (err) {
       setPhase('error');
@@ -281,12 +323,87 @@ export default function LivePOSPage() {
     [visits, selectedVisitId]
   );
 
-  // Compute breakdown for selected visit
+  const handleScanOrAddRetailCode = useCallback(
+    (rawCode: string) => {
+      const checked = validateRetailBarcode(rawCode);
+      if (!checked.valid) {
+        setStatusNotice(checked.error || 'Invalid retail barcode.');
+        return;
+      }
+      const match = retailCatalog.find(
+        (item) =>
+          item.barcode === checked.normalized || item.sku.toUpperCase() === checked.normalized
+      );
+      if (!match) {
+        setStatusNotice(`Barcode/SKU ${checked.normalized} not found in salon retail inventory.`);
+        return;
+      }
+      if (match.stock_quantity <= 0) {
+        setStatusNotice(`${match.product_name} is out of stock (0 remaining).`);
+        return;
+      }
+      setRetailCart((prev) => {
+        const existing = prev.find((line) => line.barcodeOrSku === (match.barcode || match.sku));
+        if (existing) {
+          if (existing.quantity + 1 > match.stock_quantity) {
+            setStatusNotice(`Cannot exceed ${match.stock_quantity} in-stock units for ${match.product_name}.`);
+            return prev;
+          }
+          return prev.map((line) =>
+            line.barcodeOrSku === existing.barcodeOrSku
+              ? { ...line, quantity: line.quantity + 1 }
+              : line
+          );
+        }
+        return [
+          ...prev,
+          {
+            barcodeOrSku: match.barcode || match.sku,
+            productName: match.product_name,
+            unitPriceCents: match.unit_price_cents,
+            quantity: 1,
+          },
+        ];
+      });
+      setLastScannedBadge(`${checked.symbology}: ${match.product_name}`);
+      setBarcodeScanInput('');
+    },
+    [retailCatalog]
+  );
+
+  // Global Bluetooth/USB HID Barcode Scanner keystroke listener (<45ms burst)
+  useEffect(() => {
+    if (!signedIn) return;
+    const collector = createBarcodeKeystrokeCollector({
+      onScan: (scanned) => handleScanOrAddRetailCode(scanned.normalized),
+    });
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') &&
+        target?.getAttribute('data-barcode-input') !== 'true'
+      ) {
+        return;
+      }
+      collector.feedKey(e.key, performance.now());
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [signedIn, handleScanOrAddRetailCode]);
+
+  const retailSubtotalCents = useMemo(
+    () => retailCart.reduce((acc, line) => acc + line.unitPriceCents * line.quantity, 0),
+    [retailCart]
+  );
+
+  // Compute breakdown for selected visit + scanned retail items in exact integer cents
   const breakdown = useMemo(() => {
     if (!selectedVisit) {
       return { subtotal: 0, discount: 0, tax: 0, tip: 0, amount: 0 };
     }
-    const subtotal = roundToCents(selectedVisit.total_amount);
+    const subtotalCents = toCents(selectedVisit.total_amount) + retailSubtotalCents;
+    const subtotal = fromCents(subtotalCents);
     const discount = roundToCents(Math.max(0, Number(discountInput) || 0));
     const taxRate = Math.max(0, Number(taxRateInput) || 0);
 
@@ -304,7 +421,16 @@ export default function LivePOSPage() {
       taxRate,
       tip,
     });
-  }, [selectedVisit, discountInput, taxRateInput, selectedTipPercent, customTipInput]);
+  }, [selectedVisit, retailSubtotalCents, discountInput, taxRateInput, selectedTipPercent, customTipInput]);
+
+  const splitCashCents = useMemo(
+    () => Math.min(toCents(breakdown.amount), Math.max(0, toCents(Number(splitCashInput) || 0))),
+    [breakdown.amount, splitCashInput]
+  );
+  const splitCardCents = useMemo(
+    () => Math.max(0, toCents(breakdown.amount) - splitCashCents),
+    [breakdown.amount, splitCashCents]
+  );
 
   // Execute checkout
   const handleExecuteCheckout = async () => {
@@ -333,21 +459,34 @@ export default function LivePOSPage() {
         return;
       }
 
+      const idempotencyKey =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${selectedVisit.id}-${Date.now()}`;
+
       const res = await fetch('/api/pos/checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
+          'x-idempotency-key': idempotencyKey,
         },
         body: JSON.stringify({
           visitId: selectedVisit.id,
+          idempotencyKey,
           subtotal: breakdown.subtotal,
           discount: breakdown.discount,
           tax: breakdown.tax,
           tip: breakdown.tip,
           amount: breakdown.amount,
           paymentMethod: tenderType,
-          isCashSettled: tenderType === 'cash',
+          isCashSettled: tenderType === 'cash' || (tenderType === 'split' && splitCardCents === 0),
+          cashTenderDollars: tenderType === 'split' ? fromCents(splitCashCents) : undefined,
+          cardTenderDollars: tenderType === 'split' ? fromCents(splitCardCents) : undefined,
+          retailItems: retailCart.map((item) => ({
+            barcodeOrSku: item.barcodeOrSku,
+            quantity: item.quantity,
+          })),
         }),
       });
 
@@ -391,6 +530,7 @@ export default function LivePOSPage() {
         },
       });
       setActiveReceipt(receipt);
+      setRetailCart([]);
 
       // Refresh data
       fetchSalonAndData(session.access_token);
@@ -820,48 +960,159 @@ export default function LivePOSPage() {
                         )}
                       </div>
 
+                      {/* Bluetooth/USB HID Barcode Scanner & Retail Add-Ons */}
+                      <div className="rounded-xl border border-white/10 bg-obsidian-800/50 p-3.5 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-white">
+                            <ScanBarcode className="h-4 w-4 text-periwinkle-400" />
+                            <span>HID Barcode Retail Scanner</span>
+                          </div>
+                          <span className="font-mono text-[10px] text-emerald-300">
+                            {lastScannedBadge || 'USB/Bluetooth HID Wedge Active (<45ms)'}
+                          </span>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            data-barcode-input="true"
+                            value={barcodeScanInput}
+                            onChange={(e) => setBarcodeScanInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && barcodeScanInput.trim()) {
+                                e.preventDefault();
+                                handleScanOrAddRetailCode(barcodeScanInput);
+                              }
+                            }}
+                            placeholder="Scan UPC/EAN barcode or enter SKU..."
+                            className="flex-1 rounded-lg border border-white/10 bg-obsidian-900 px-3 py-1.5 font-mono text-xs text-white placeholder-zinc-500 focus:border-periwinkle-400 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (barcodeScanInput.trim()) handleScanOrAddRetailCode(barcodeScanInput);
+                            }}
+                            className="rounded-lg border border-periwinkle-400/40 bg-periwinkle-500/15 px-3 py-1.5 text-xs font-semibold text-periwinkle-200 hover:bg-periwinkle-500/25"
+                          >
+                            Add SKU
+                          </button>
+                        </div>
+
+                        {retailCart.length > 0 && (
+                          <div className="space-y-1.5 border-t border-white/10 pt-2">
+                            {retailCart.map((item) => (
+                              <div
+                                key={item.barcodeOrSku}
+                                className="flex items-center justify-between text-xs text-zinc-200"
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <ShoppingBag className="h-3.5 w-3.5 text-periwinkle-400" />
+                                  {item.productName} × {item.quantity}
+                                </span>
+                                <div className="flex items-center gap-2 font-mono">
+                                  <span>${fromCents(item.unitPriceCents * item.quantity).toFixed(2)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRetailCart((prev) =>
+                                        prev.filter((r) => r.barcodeOrSku !== item.barcodeOrSku)
+                                      )
+                                    }
+                                    className="text-zinc-400 hover:text-rose-300"
+                                    aria-label={`Remove ${item.productName}`}
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
                       {/* Tender Selector */}
                       <div className="space-y-2 pt-2">
                         <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">
                           Tender Method (WF06 Invariant)
                         </span>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                           <button
                             type="button"
                             onClick={() => setTenderType('cash')}
-                            className={`flex items-center gap-3 rounded-xl border p-4 text-left transition ${
+                            className={`flex items-center gap-3 rounded-xl border p-3.5 text-left transition ${
                               tenderType === 'cash'
                                 ? 'border-emerald-400 bg-emerald-500/10 ring-1 ring-emerald-400'
                                 : 'border-white/10 bg-obsidian-800/60 hover:bg-obsidian-800'
                             }`}
                           >
-                            <Banknote className="h-6 w-6 text-emerald-400" />
+                            <Banknote className="h-5 w-5 shrink-0 text-emerald-400" />
                             <div>
                               <p className="font-bold text-sm text-white">Cash Tender</p>
-                              <p className="text-xs text-zinc-400">
-                                Settle instantly in salon cash drawer
-                              </p>
+                              <p className="text-[11px] text-zinc-400">Instant drawer settle</p>
                             </div>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => setTenderType('card')}
-                            className={`flex items-center gap-3 rounded-xl border p-4 text-left transition ${
+                            className={`flex items-center gap-3 rounded-xl border p-3.5 text-left transition ${
                               tenderType === 'card'
                                 ? 'border-periwinkle-400 bg-periwinkle-500/10 ring-1 ring-periwinkle-400'
                                 : 'border-white/10 bg-obsidian-800/60 hover:bg-obsidian-800'
                             }`}
                           >
-                            <CreditCard className="h-6 w-6 text-periwinkle-400" />
+                            <CreditCard className="h-5 w-5 shrink-0 text-periwinkle-400" />
                             <div>
                               <p className="font-bold text-sm text-white">Card Capture</p>
-                              <p className="text-xs text-zinc-400">
-                                Terminal / pending gateway settlement
-                              </p>
+                              <p className="text-[11px] text-zinc-400">Gateway settlement</p>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTenderType('split');
+                              setSplitCashInput(fromCents(Math.floor(toCents(breakdown.amount) / 2)).toFixed(2));
+                            }}
+                            className={`flex items-center gap-3 rounded-xl border p-3.5 text-left transition ${
+                              tenderType === 'split'
+                                ? 'border-amber-400 bg-amber-500/10 ring-1 ring-amber-400'
+                                : 'border-white/10 bg-obsidian-800/60 hover:bg-obsidian-800'
+                            }`}
+                          >
+                            <Split className="h-5 w-5 shrink-0 text-amber-400" />
+                            <div>
+                              <p className="font-bold text-sm text-white">Split Tender</p>
+                              <p className="text-[11px] text-zinc-400">Exact cent Cash + Card</p>
                             </div>
                           </button>
                         </div>
+
+                        {tenderType === 'split' && (
+                          <div className="mt-2 grid grid-cols-2 gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+                            <label className="block text-zinc-300">
+                              Cash Leg ($):
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={breakdown.amount}
+                                value={splitCashInput}
+                                onChange={(e) => setSplitCashInput(e.target.value)}
+                                className="mt-1 w-full rounded-lg border border-white/15 bg-obsidian-900 px-2.5 py-1 font-mono text-white"
+                              />
+                            </label>
+                            <div className="flex flex-col justify-between">
+                              <span className="text-zinc-400">Auto-Balanced Card Leg:</span>
+                              <span className="font-mono text-base font-bold text-periwinkle-300">
+                                ${fromCents(splitCardCents).toFixed(2)}
+                              </span>
+                              <span className="font-mono text-[10px] text-emerald-400">
+                                Δ = $0.00 variance
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Summary Breakdown Box */}

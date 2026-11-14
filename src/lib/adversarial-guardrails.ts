@@ -136,8 +136,8 @@ const PROMPT_INJECTION_PATTERNS = [
   /ignore\s+(all\s+)?(previous|prior)\s+instructions/i,
   /system\s+prompt/i,
   /disregard\s+(all\s+)?prior/i,
-  /you\s+are\s+now\s+in\s+developer\s+mode/i,
-  /bypass\s+all\s+(rules|restrictions)/i,
+  /you\s+are\s+now\s+in\s+(developer|dan)\s+mode/i,
+  /bypass\s+all\s+(rules|restrictions|guardrails)/i,
   /sudo\s+mode/i,
   /role:\s*(system|assistant|admin)/i,
   /<\s*system\s*>/i,
@@ -145,6 +145,8 @@ const PROMPT_INJECTION_PATTERNS = [
   /---+\s*system\s*---+/i,
   /give\s+me\s+(free|complimentary)\s+(groom|service|bath)/i,
   /override\s+(pricing|balance|total|checkout)/i,
+  /reveal\s+(your\s+)?(hidden\s+)?(instructions|api\s*key|secrets?)/i,
+  /[\u202A-\u202E\u2066-\u2069]/,
 ];
 
 export interface SanitizePetNotesResult {
@@ -312,8 +314,25 @@ export interface SmsQuotaState {
   remaining: number;
 }
 
-// In-memory token bucket registry per tenant
+// Bounded in-memory token bucket registry per tenant (prevents OOM under multi-tenant flood)
+const MAX_SMS_QUOTA_TENANTS = 5_000;
 const smsQuotaRegistry = new Map<string, { usage: number; monthKey: string; limit: number }>();
+
+function evictMapToCap<K, V>(map: Map<K, V>, maxEntries: number): void {
+  while (map.size >= maxEntries) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
+
+function evictSetToCap<T>(set: Set<T>, maxEntries: number): void {
+  while (set.size >= maxEntries) {
+    const oldest = set.values().next().value;
+    if (oldest === undefined) break;
+    set.delete(oldest);
+  }
+}
 
 function getMonthKey(): string {
   const d = new Date();
@@ -329,7 +348,7 @@ export function checkSmsQuota(salonId: string, requestedCount = 1, tierLimit = 5
       salonId,
       monthlyLimit: tierLimit,
       currentUsage: 0,
-      remaining: tierLimit,
+      remaining: Math.max(0, tierLimit - Math.max(0, requestedCount - requestedCount)),
     };
   }
 
@@ -347,7 +366,11 @@ export function recordSmsDispatch(salonId: string, count = 1, tierLimit = 500): 
   let entry = smsQuotaRegistry.get(salonId);
 
   if (!entry || entry.monthKey !== monthKey) {
+    if (!smsQuotaRegistry.has(salonId)) {
+      evictMapToCap(smsQuotaRegistry, MAX_SMS_QUOTA_TENANTS);
+    }
     entry = { usage: 0, monthKey, limit: tierLimit };
+    smsQuotaRegistry.delete(salonId);
     smsQuotaRegistry.set(salonId, entry);
   }
 
@@ -393,6 +416,7 @@ export interface DevicePasskey {
   revocationReason?: string;
 }
 
+const MAX_DEVICE_PASSKEYS = 10_000;
 const deviceRegistry = new Map<string, DevicePasskey>();
 
 export function registerDevicePasskey(
@@ -400,6 +424,9 @@ export function registerDevicePasskey(
   salonId: string,
   label = 'Mobile Van Tablet'
 ): DevicePasskey {
+  if (!deviceRegistry.has(deviceId)) {
+    evictMapToCap(deviceRegistry, MAX_DEVICE_PASSKEYS);
+  }
   const passkey: DevicePasskey = {
     deviceId,
     salonId,
@@ -407,6 +434,7 @@ export function registerDevicePasskey(
     status: 'active',
     registeredAt: new Date().toISOString(),
   };
+  deviceRegistry.delete(deviceId);
   deviceRegistry.set(deviceId, passkey);
   return passkey;
 }
@@ -429,6 +457,12 @@ export function isDevicePasskeyValid(deviceId: string, salonId: string): boolean
   return passkey.status === 'active';
 }
 
+export function isDevicePasskeyRevoked(deviceId: string): boolean {
+  const passkey = deviceRegistry.get(deviceId);
+  if (!passkey) return false;
+  return passkey.status !== 'active';
+}
+
 export function clearDeviceRegistryForTest(): void {
   deviceRegistry.clear();
 }
@@ -445,6 +479,10 @@ export interface WebhookEventPayload {
   payload: Record<string, unknown>;
   receivedAt: string;
 }
+
+const MAX_PROCESSED_WEBHOOK_EVENTS = 10_000;
+const MAX_WEBHOOK_ENTITIES = 5_000;
+const MAX_BUFFERED_PER_ENTITY = 64;
 
 const processedEventSet = new Set<string>();
 const entitySequenceTracker = new Map<string, number>();
@@ -475,9 +513,23 @@ export function bufferOrProcessWebhookEvent(event: {
   const currentSeq = entitySequenceTracker.get(event.entityId) ?? 0;
   const expectedSeq = currentSeq + 1;
 
-  // 2. Future event arrived early: buffer it
+  // 2. Future event arrived early: buffer it with strict per-entity & global bounds
   if (event.sequenceNumber > expectedSeq) {
+    if (!webhookBufferQueue.has(event.entityId)) {
+      evictMapToCap(webhookBufferQueue, MAX_WEBHOOK_ENTITIES);
+    }
     const queue = webhookBufferQueue.get(event.entityId) ?? [];
+    if (queue.some((item) => item.id === event.id)) {
+      return {
+        status: 'duplicate_ignored',
+        entityId: event.entityId,
+        currentSequence: currentSeq,
+        bufferedCount: queue.length,
+      };
+    }
+    if (queue.length >= MAX_BUFFERED_PER_ENTITY) {
+      queue.shift();
+    }
     queue.push({
       id: event.id,
       entityId: event.entityId,
@@ -486,7 +538,6 @@ export function bufferOrProcessWebhookEvent(event: {
       payload: event.payload ?? {},
       receivedAt: new Date().toISOString(),
     });
-    // Sort queue by sequence ascending
     queue.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
     webhookBufferQueue.set(event.entityId, queue);
 
@@ -498,8 +549,12 @@ export function bufferOrProcessWebhookEvent(event: {
     };
   }
 
-  // 3. In-order event: process immediately
+  // 3. In-order event: process immediately with bounded nonce sets
+  evictSetToCap(processedEventSet, MAX_PROCESSED_WEBHOOK_EVENTS);
   processedEventSet.add(event.id);
+  if (!entitySequenceTracker.has(event.entityId)) {
+    evictMapToCap(entitySequenceTracker, MAX_WEBHOOK_ENTITIES);
+  }
   entitySequenceTracker.set(event.entityId, event.sequenceNumber);
 
   // Check if queued events can now drain in sequence
@@ -507,11 +562,16 @@ export function bufferOrProcessWebhookEvent(event: {
   const queue = webhookBufferQueue.get(event.entityId) ?? [];
   while (queue.length > 0 && queue[0].sequenceNumber === nextSeq) {
     const nextEvent = queue.shift()!;
+    evictSetToCap(processedEventSet, MAX_PROCESSED_WEBHOOK_EVENTS);
     processedEventSet.add(nextEvent.id);
     entitySequenceTracker.set(event.entityId, nextEvent.sequenceNumber);
     nextSeq = nextEvent.sequenceNumber + 1;
   }
-  webhookBufferQueue.set(event.entityId, queue);
+  if (queue.length === 0) {
+    webhookBufferQueue.delete(event.entityId);
+  } else {
+    webhookBufferQueue.set(event.entityId, queue);
+  }
 
   return {
     status: 'processed',
@@ -792,10 +852,16 @@ export class CircuitBreaker {
   }
 
   private recordSuccess(now: number): void {
+    if (this.successTimestamps.length >= 2_000) {
+      this.successTimestamps.shift();
+    }
     this.successTimestamps.push(now);
   }
 
   private recordFailure(now: number): void {
+    if (this.failureTimestamps.length >= 2_000) {
+      this.failureTimestamps.shift();
+    }
     this.failureTimestamps.push(now);
     const total = this.successTimestamps.length + this.failureTimestamps.length;
     if (total >= this.minRequestsInWindow) {
@@ -806,4 +872,36 @@ export class CircuitBreaker {
       }
     }
   }
+}
+
+export const stripeCircuitBreaker = new CircuitBreaker(20, 60_000, 15_000, 8);
+export const communicationsCircuitBreaker = new CircuitBreaker(20, 60_000, 15_000, 8);
+export const voiceAiCircuitBreaker = new CircuitBreaker(25, 60_000, 15_000, 6);
+
+export function getGuardrailsMemoryMetrics(): {
+  smsQuotaTenants: number;
+  devicePasskeys: number;
+  processedWebhooks: number;
+  bufferedWebhookEntities: number;
+  circuits: {
+    stripe: CircuitMetrics;
+    communications: CircuitMetrics;
+    voiceAi: CircuitMetrics;
+  };
+} {
+  return {
+    smsQuotaTenants: smsQuotaRegistry.size,
+    devicePasskeys: deviceRegistry.size,
+    processedWebhooks: processedEventSet.size,
+    bufferedWebhookEntities: webhookBufferQueue.size,
+    circuits: {
+      stripe: stripeCircuitBreaker.getMetrics(),
+      communications: communicationsCircuitBreaker.getMetrics(),
+      voiceAi: voiceAiCircuitBreaker.getMetrics(),
+    },
+  };
+}
+
+export function generateIdempotencyNonce(): string {
+  return randomUUID();
 }

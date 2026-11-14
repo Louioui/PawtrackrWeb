@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     if (!salonName || !slug || !ownerEmail) {
       return NextResponse.json(
         { error: 'salonName, slug, and ownerEmail are required.' },
-        { status: 400 }
+        { status: 400, headers: { 'Cache-Control': 'no-store' } }
       );
     }
 
@@ -34,25 +34,28 @@ export async function POST(req: NextRequest) {
     const selectedPlan = SAAS_PLANS[planId] ?? SAAS_PLANS.salon_pro;
 
     // Preview response only. No Stripe session or tenant is provisioned.
-    return NextResponse.json({
-      ok: true,
-      mode: 'demo_preview',
-      bookingPortalUrl: `/portal/${cleanSlug}`,
-      dashboardUrl: `/dashboard`,
-      business: {
-        id: crypto.randomUUID(),
-        name: salonName,
-        slug: cleanSlug,
-        owner_email: ownerEmail,
-        subscription_plan: selectedPlan.id,
-        monthly_rate: selectedPlan.monthlyPriceDollars,
-        subscription_status: 'trialing',
-        created_at: new Date().toISOString(),
+    return NextResponse.json(
+      {
+        ok: true,
+        mode: 'demo_preview',
+        bookingPortalUrl: `/portal/${cleanSlug}`,
+        dashboardUrl: `/dashboard`,
+        business: {
+          id: crypto.randomUUID(),
+          name: salonName,
+          slug: cleanSlug,
+          owner_email: ownerEmail,
+          subscription_plan: selectedPlan.id,
+          monthly_rate: selectedPlan.monthlyPriceDollars,
+          subscription_status: 'trialing',
+          created_at: new Date().toISOString(),
+        },
       },
-    });
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Subscription provisioning failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

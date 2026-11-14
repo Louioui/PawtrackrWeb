@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await auth.ctx.supabase
     .from('staff_invitations')
-    .select('id, email, role, invited_name, token, expires_at, accepted_at, created_at')
+    .select('id, email, role, invited_name, expires_at, accepted_at, created_at')
     .eq('business_id', auth.ctx.membership.business_id)
     .order('created_at', { ascending: false })
     .limit(50);

@@ -63,13 +63,14 @@ This document maps the user's broad build request and the supplied architecture 
   - PR #8: Cross-tenant data isolation and foreign-key hijacking protection tests.
   - PR #9: Enterprise platform Slices 1–7 rollout (WF00–WF40) with renumbered migrations `0025`–`0031`, live production engines (Operations floor queue, POS settlement & surcharges, Communications & report cards, Payroll commissions & period lock, Waitlist holds, Fleet dispatch, and Data portability with atomic rollback), and UX Pilot design review resolutions.
   - Slice WF02/WF14: Customer Self-Service Portal (`/portal/live/[slug]/manage`), reference code lookup, GiST-locked self-reschedule, 24-hour advance policy cancellation, and `0032_customer_self_service_portal.sql`.
+  - Slice WF07/WF20: Private Grooming Photos & Document Intake Vault (`0033_pet_documents_and_storage_verification.sql`), private `pet-documents` storage bucket with RLS, multi-tenant `pet_documents` table with RLS and cross-tenant foreign-key assertion triggers (`assert_same_business_reference`), atomic verification RPC `verify_pet_document` with `pets.rabies_verified` synchronization and append-only `workflow_events` audit logging (`WF20`), pre-signed expiring URLs (15-min TTL) for private media via `/api/media/sign`, report card pre-signed photo attachments in Customer Booking Portal (`/portal/live/[slug]/manage`), and Staff Document Vault modal (`PetDocumentsModal.tsx`) on `/dashboard/clients/live`.
 - **CodeRabbit & UX Pilot Review Resolutions:**
   - All CodeRabbit and UX Pilot review comments across PRs #5, #6, #7, #8, and #9 were fully addressed, verified, and resolved prior to merge.
 - **Test Suite Metrics:**
-  - `npm run test:migrations`: 32 migrations applied cleanly + full tenant isolation, GiST concurrency race, and workflow event immutability fixtures passed.
+  - `npm run test:migrations`: 33 migrations applied cleanly + full tenant isolation, cross-tenant foreign-key assertions, GiST concurrency race, and workflow event immutability fixtures passed.
   - `npm run typecheck`: 0 TypeScript errors.
-  - `npm test`: 178/178 passing unit and scenario assertions.
-  - `npm run test:e2e`: 65/65 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
+  - `npm test`: 184/184 passing unit and scenario assertions.
+  - `npm run test:e2e`: 31/31 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
 
 ## Production flows added on November 9–10, 2026
 

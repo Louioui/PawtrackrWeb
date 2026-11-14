@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Sparkles, CheckCircle2, AlertCircle, FileText, Send, Save } from 'lucide-react';
+import { X, Sparkles, CheckCircle2, AlertCircle, FileText, Send, Save, Camera, Plus, Trash2 } from 'lucide-react';
 import {
   COAT_CONDITIONS,
   CoatCondition,
@@ -47,6 +47,10 @@ export default function ReportCardModal({
   const [behaviorTags, setBehaviorTags] = useState<string[]>(['calm']);
   const [careNotes, setCareNotes] = useState('');
   const [recommendations, setRecommendations] = useState('');
+  const [photos, setPhotos] = useState<Array<{ url?: string; path?: string; caption?: string; stage?: 'before' | 'after' }>>([]);
+  const [newPhotoUrl, setNewPhotoUrl] = useState('');
+  const [newPhotoCaption, setNewPhotoCaption] = useState('');
+  const [newPhotoStage, setNewPhotoStage] = useState<'before' | 'after'>('after');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cardStatus, setCardStatus] = useState<'draft' | 'published'>('draft');
@@ -76,6 +80,7 @@ export default function ReportCardModal({
             setBehaviorTags(body.reportCard.behavior_tags || ['calm']);
             setCareNotes(body.reportCard.care_notes || '');
             setRecommendations(body.reportCard.recommendations || '');
+            setPhotos(Array.isArray(body.reportCard.photos) ? body.reportCard.photos : []);
             setCardStatus(body.reportCard.status || 'draft');
           }
         }
@@ -93,6 +98,24 @@ export default function ReportCardModal({
     setBehaviorTags((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
+  };
+
+  const handleAddPhoto = () => {
+    if (!newPhotoUrl.trim()) return;
+    setPhotos((prev) => [
+      ...prev,
+      {
+        url: newPhotoUrl.trim(),
+        caption: newPhotoCaption.trim() || undefined,
+        stage: newPhotoStage,
+      },
+    ]);
+    setNewPhotoUrl('');
+    setNewPhotoCaption('');
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSave = async (action: 'draft' | 'publish') => {
@@ -115,6 +138,7 @@ export default function ReportCardModal({
           behaviorTags,
           careNotes,
           recommendations,
+          photos,
         }),
       });
 
@@ -265,6 +289,78 @@ export default function ReportCardModal({
               placeholder="e.g. Daily line brushing recommended. Schedule next bath in 4-6 weeks."
               className="w-full rounded-lg border border-white/15 bg-obsidian-900 p-2.5 text-xs text-white focus:border-periwinkle-400"
             />
+          </div>
+
+          {/* Grooming Photos (WF07) */}
+          <div>
+            <label className="block font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+              Grooming Photos & Before/After Shots:
+            </label>
+
+            {photos.length > 0 && (
+              <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {photos.map((p, idx) => (
+                  <div
+                    key={idx}
+                    className="relative overflow-hidden rounded-lg border border-white/10 bg-obsidian-900 p-1.5"
+                  >
+                    <div className="flex items-center justify-between text-[10px] text-zinc-400">
+                      <span className="font-semibold uppercase">{p.stage || 'photo'}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoto(idx)}
+                        className="text-rose-400 hover:text-rose-300"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                    {p.url && (
+                      <img
+                        src={p.url}
+                        alt={p.caption || 'Grooming snapshot'}
+                        className="mt-1 h-20 w-full rounded object-cover"
+                      />
+                    )}
+                    {p.caption && (
+                      <div className="mt-1 truncate text-[10px] text-zinc-300">{p.caption}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-obsidian-900/60 p-2">
+              <input
+                type="text"
+                placeholder="Image URL or Storage Path"
+                value={newPhotoUrl}
+                onChange={(e) => setNewPhotoUrl(e.target.value)}
+                className="min-w-[180px] flex-1 rounded border border-white/10 bg-obsidian-950 px-2 py-1.5 text-xs text-white"
+              />
+              <input
+                type="text"
+                placeholder="Caption (e.g. Scissored columns)"
+                value={newPhotoCaption}
+                onChange={(e) => setNewPhotoCaption(e.target.value)}
+                className="min-w-[140px] flex-1 rounded border border-white/10 bg-obsidian-950 px-2 py-1.5 text-xs text-white"
+              />
+              <select
+                value={newPhotoStage}
+                onChange={(e) => setNewPhotoStage(e.target.value as 'before' | 'after')}
+                className="rounded border border-white/10 bg-obsidian-950 px-2 py-1.5 text-xs text-zinc-300"
+              >
+                <option value="before">Before</option>
+                <option value="after">After</option>
+              </select>
+              <button
+                type="button"
+                onClick={handleAddPhoto}
+                disabled={!newPhotoUrl.trim()}
+                className="inline-flex items-center gap-1 rounded bg-periwinkle-400 px-2.5 py-1.5 text-xs font-semibold text-obsidian-950 hover:bg-periwinkle-300 disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" /> Add
+              </button>
+            </div>
           </div>
         </div>
 

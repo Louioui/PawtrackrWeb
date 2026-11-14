@@ -6,8 +6,10 @@ import { useSearchParams } from 'next/navigation';
 import {
   AlertCircle,
   Calendar,
+  Camera,
   CheckCircle2,
   Clock,
+  Heart,
   MapPin,
   Phone,
   RotateCcw,
@@ -583,6 +585,98 @@ function PortalContent({ slug, salonName, timeZone }: ManageBookingPortalProps) 
                   </div>
                 </div>
               )}
+            </div>
+          )}
+        </article>
+      )}
+
+      {/* Digital Pet Report Card (WF07) */}
+      {booking?.reportCard && (
+        <article className="glass-card mt-6 overflow-hidden border border-emerald-500/20 bg-emerald-950/10 p-5 sm:p-6">
+          <div className="flex items-center justify-between border-b border-white/10 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-400">
+                <Sparkles className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">
+                  {booking.petName}’s Digital Report Card
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Published {new Date(booking.reportCard.publishedAt).toLocaleDateString()}
+                </p>
+              </div>
+            </div>
+            <div className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-300">
+              Coat: {booking.reportCard.coatCondition.replace('_', ' ')}
+            </div>
+          </div>
+
+          {/* Behavior Tags */}
+          {booking.reportCard.behaviorTags.length > 0 && (
+            <div className="mt-4">
+              <div className="text-xs font-medium text-zinc-400">Temperament & Behavior</div>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {booking.reportCard.behaviorTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 rounded-md bg-white/5 px-2 py-0.5 text-xs text-zinc-200"
+                  >
+                    <Heart className="h-2.5 w-2.5 text-rose-300" aria-hidden="true" />
+                    {tag.replace('_', ' ')}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Care Notes & Recommendations */}
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {booking.reportCard.careNotes && (
+              <div className="rounded-lg bg-white/[0.03] p-3 text-xs">
+                <div className="font-semibold text-white">Groomer Care Notes</div>
+                <p className="mt-1 text-zinc-300">{booking.reportCard.careNotes}</p>
+              </div>
+            )}
+            {booking.reportCard.recommendations && (
+              <div className="rounded-lg bg-white/[0.03] p-3 text-xs">
+                <div className="font-semibold text-white">Next Visit Recommendations</div>
+                <p className="mt-1 text-zinc-300">{booking.reportCard.recommendations}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Photos Gallery */}
+          {booking.reportCard.photos.length > 0 && (
+            <div className="mt-5 border-t border-white/10 pt-4">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-300">
+                <Camera className="h-3.5 w-3.5 text-periwinkle-300" aria-hidden="true" />
+                Grooming Photo Gallery
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {booking.reportCard.photos.map((photo, index) => (
+                  <div
+                    key={photo.url || photo.path || index}
+                    className="overflow-hidden rounded-xl border border-white/10 bg-obsidian-950/80"
+                  >
+                    {photo.url ? (
+                      <img
+                        src={photo.url}
+                        alt={photo.caption || `${booking.petName} grooming photo`}
+                        className="h-44 w-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="flex h-44 w-full items-center justify-center bg-obsidian-900 text-xs text-zinc-500">
+                        Photo attached
+                      </div>
+                    )}
+                    {photo.caption && (
+                      <div className="p-2.5 text-xs text-zinc-300">{photo.caption}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </article>

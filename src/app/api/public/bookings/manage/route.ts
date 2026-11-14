@@ -55,5 +55,27 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Pre-sign photos for pet report card if present (WF07: expiring private URLs)
+  if (booking.reportCard && booking.reportCard.photos.length > 0) {
+    const signedPhotos = await Promise.all(
+      booking.reportCard.photos.map(async (photo) => {
+        if (photo.path && !photo.url) {
+          try {
+            const { data: signData } = await client.storage
+              .from('grooming-photos')
+              .createSignedUrl(photo.path, 900);
+            if (signData?.signedUrl) {
+              return { ...photo, url: signData.signedUrl };
+            }
+          } catch {
+            // Keep original if signing failed
+          }
+        }
+        return photo;
+      })
+    );
+    booking.reportCard.photos = signedPhotos;
+  }
+
   return reply({ booking }, 200);
 }

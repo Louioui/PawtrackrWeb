@@ -37,6 +37,24 @@ export interface CustomerBookingDetails {
   canReschedule: boolean;
   canCancel: boolean;
   policyNotice: string;
+  reportCard?: CustomerReportCard | null;
+}
+
+export interface CustomerReportCardPhoto {
+  url?: string;
+  path?: string;
+  caption?: string;
+  stage?: 'before' | 'after' | 'during';
+}
+
+export interface CustomerReportCard {
+  id: string;
+  coatCondition: string;
+  behaviorTags: string[];
+  careNotes: string | null;
+  recommendations: string | null;
+  photos: CustomerReportCardPhoto[];
+  publishedAt: string;
 }
 
 export interface CancelBookingResponse {
@@ -224,6 +242,37 @@ export function parseCustomerBookingDetails(value: unknown): CustomerBookingDeta
       typeof policy_notice === 'string' && policy_notice.trim()
         ? policy_notice.trim()
         : 'Appointments can be modified or cancelled online up to 24 hours in advance.',
+    reportCard: isRecord(value.report_card)
+      ? {
+          id: String(value.report_card.id),
+          coatCondition: String(value.report_card.coat_condition || 'good'),
+          behaviorTags: Array.isArray(value.report_card.behavior_tags)
+            ? value.report_card.behavior_tags.map(String)
+            : [],
+          careNotes:
+            typeof value.report_card.care_notes === 'string'
+              ? value.report_card.care_notes.trim()
+              : null,
+          recommendations:
+            typeof value.report_card.recommendations === 'string'
+              ? value.report_card.recommendations.trim()
+              : null,
+          photos: Array.isArray(value.report_card.photos)
+            ? value.report_card.photos.filter(isRecord).map((p) => ({
+                url: typeof p.url === 'string' ? p.url : undefined,
+                path: typeof p.path === 'string' ? p.path : undefined,
+                caption: typeof p.caption === 'string' ? p.caption : undefined,
+                stage:
+                  p.stage === 'before' || p.stage === 'after' || p.stage === 'during'
+                    ? p.stage
+                    : undefined,
+              }))
+            : [],
+          publishedAt: value.report_card.published_at
+            ? new Date(String(value.report_card.published_at)).toISOString()
+            : new Date().toISOString(),
+        }
+      : null,
   };
 }
 

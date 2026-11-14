@@ -1751,5 +1751,104 @@ BEGIN
     RAISE EXCEPTION 'Deleting a salon did not cascade its workflow_events';
   END IF;
 END $$;
+
+-- ----------------------------------------------------------------------------
+-- SLICE 5: WF20 PET DOCUMENTS & VACCINATION ELIGIBILITY VERIFICATION
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_biz_a constant uuid := '11111111-1111-4111-8111-111111111111';
+  v_biz_b constant uuid := '22222222-2222-4222-8222-222222222222';
+  v_staff_a uuid;
+  v_pet_a uuid;
+  v_client_a uuid;
+  v_doc_id uuid;
+  v_res jsonb;
+BEGIN
+  -- Verify private storage bucket
+  IF (SELECT public FROM storage.buckets WHERE id = 'pet-documents') THEN
+    RAISE EXCEPTION 'pet-documents storage bucket must not be public';
+  END IF;
+
+  SELECT id INTO v_staff_a FROM public.staff_members WHERE business_id = v_biz_a LIMIT 1;
+  SELECT id, client_id INTO v_pet_a, v_client_a FROM public.pets WHERE business_id = v_biz_a LIMIT 1;
+
+  -- Test cross-tenant foreign key hijacking protection
+  BEGIN
+    INSERT INTO public.pet_documents (
+      business_id, pet_id, client_id, document_type, file_path, file_name, mime_type
+    ) VALUES (
+      v_biz_b, v_pet_a, v_client_a, 'rabies_certificate', '22222222-2222-4222-8222-222222222222/r.pdf', 'r.pdf', 'application/pdf'
+    );
+    RAISE EXCEPTION 'Cross-tenant pet document insert was accepted';
+  EXCEPTION
+    WHEN check_violation THEN NULL;
+    WHEN SQLSTATE '23514' THEN NULL;
+  END;
+
+  -- Insert valid document for Pet A
+  INSERT INTO public.pet_documents (
+    business_id, pet_id, client_id, document_type, file_path, file_name, mime_type, status
+  ) VALUES (
+    v_biz_a, v_pet_a, v_client_a, 'rabies_certificate',
+    v_biz_a::text || '/pets/rabies_cert.pdf', 'rabies_cert.pdf', 'application/pdf', 'uploaded'
+  ) RETURNING id INTO v_doc_id;
+
+  -- Initial state: pet has rabies_verified = true by default; reset to false to test verification
+  UPDATE public.pets SET rabies_verified = false WHERE id = v_pet_a;
+
+  -- Call verify_pet_document as staff
+  PERFORM set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-4000-8000-000000000000', true);
+
+  -- 1. Reject past expiration date
+  BEGIN
+    PERFORM public.verify_pet_document(v_doc_id, 'verified', CURRENT_DATE - 1, 'Invalid past expiry');
+    RAISE EXCEPTION 'verify_pet_document accepted past expiry date';
+  EXCEPTION WHEN SQLSTATE 'PW021' THEN NULL;
+  END;
+
+  -- 2. Verify with future date
+  v_res := public.verify_pet_document(v_doc_id, 'verified', CURRENT_DATE + 365, 'Tag #8911 confirmed');
+  IF (v_res->>'status') <> 'verified' THEN
+    RAISE EXCEPTION 'verify_pet_document failed to return verified status: %', v_res;
+  END IF;
+
+  -- Verify pets.rabies_verified flipped to true
+  IF NOT (SELECT rabies_verified FROM public.pets WHERE id = v_pet_a) THEN
+    RAISE EXCEPTION 'verify_pet_document did not synchronize rabies_verified = true on pet';
+  END IF;
+
+  -- Verify workflow_events audit trail (WF20)
+  IF NOT EXISTS (
+    SELECT 1 FROM public.workflow_events
+    WHERE business_id = v_biz_a AND workflow_id = 'WF20' AND event_type = 'document.verified'
+  ) THEN
+    RAISE EXCEPTION 'workflow_events missing document.verified entry (WF20)';
+  END IF;
+
+  -- 3. Reject document
+  v_res := public.verify_pet_document(v_doc_id, 'rejected', NULL, 'Illegible tag stamp');
+  IF (v_res->>'status') <> 'rejected' THEN
+    RAISE EXCEPTION 'verify_pet_document failed to return rejected status: %', v_res;
+  END IF;
+
+  -- Verify pets.rabies_verified flipped to false
+  IF (SELECT rabies_verified FROM public.pets WHERE id = v_pet_a) THEN
+    RAISE EXCEPTION 'verify_pet_document rejection did not synchronize rabies_verified = false on pet';
+  END IF;
+
+  -- Verify workflow_events audit trail for rejection
+  IF NOT EXISTS (
+    SELECT 1 FROM public.workflow_events
+    WHERE business_id = v_biz_a AND workflow_id = 'WF20' AND event_type = 'document.rejected'
+  ) THEN
+    RAISE EXCEPTION 'workflow_events missing document.rejected entry (WF20)';
+  END IF;
+
+  -- Clean up test doc
+  DELETE FROM public.pet_documents WHERE id = v_doc_id;
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+END $$;
+
 SQL
 printf 'Migration execution and basic tenant/RPC checks passed.\n'

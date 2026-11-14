@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
   const [clientCountResult, pets] = await Promise.all([
     supabase.from('clients').select('id', { count: 'exact', head: true }).eq('business_id', membership.business_id),
-    supabase.from('pets').select('id,client_id,name,breed,weight_lbs').eq('business_id', membership.business_id).order('name', { ascending: true }).limit(500),
+    supabase.from('pets').select('id,client_id,name,breed,weight_lbs,rabies_verified').eq('business_id', membership.business_id).order('name', { ascending: true }).limit(500),
   ]);
   if (clientCountResult.error || pets.error || !pets.data) {
     return reply({ error: 'Salon clients and pets could not be loaded.' }, 502);
@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
       pet_name: pet.name,
       breed: pet.breed,
       weight_lbs: pet.weight_lbs !== null && pet.weight_lbs !== undefined ? Number(pet.weight_lbs) : null,
+      rabies_verified: Boolean(pet.rabies_verified),
       client_name: owner.name,
       client_phone: owner.phone,
       client_email: owner.email ?? null,

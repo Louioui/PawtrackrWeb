@@ -2,9 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { RefreshCw, WifiOff } from 'lucide-react';
+import { FileText, RefreshCw, ShieldAlert, ShieldCheck, WifiOff } from 'lucide-react';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { LiveClientRoster, normalizeLiveClientRoster } from '@/lib/live-clients';
+import PetDocumentsModal from '@/components/PetDocumentsModal';
 
 export default function LiveClientsPage() {
   const [email, setEmail] = useState('');
@@ -23,9 +24,23 @@ export default function LiveClientsPage() {
   const [weightPetId, setWeightPetId] = useState('');
   const [updatedWeightLbs, setUpdatedWeightLbs] = useState('');
   const [saving, setSaving] = useState(false);
+  const [selectedDocPet, setSelectedDocPet] = useState<{
+    id: string;
+    name: string;
+    breed: string;
+    rabies_verified: boolean;
+    client_id: string;
+  } | null>(null);
   const requestId = useRef(0);
   const intakeMenuRef = useRef<HTMLDetailsElement>(null);
   const weightMenuRef = useRef<HTMLDetailsElement>(null);
+
+  const getAccessToken = useCallback(async (): Promise<string | null> => {
+    const client = getSupabaseClient();
+    if (!client) return null;
+    const { data: { session } } = await client.auth.getSession();
+    return session?.access_token ?? null;
+  }, []);
 
   const refresh = useCallback(async () => {
     const current = ++requestId.current;
@@ -256,7 +271,8 @@ export default function LiveClientsPage() {
                   <th scope="col" className="py-2 pr-4">Breed</th>
                   <th scope="col" className="py-2 pr-4">Weight</th>
                   <th scope="col" className="py-2 pr-4">Client</th>
-                  <th scope="col" className="py-2">Phone</th>
+                  <th scope="col" className="py-2 pr-4">Phone</th>
+                  <th scope="col" className="py-2">Rabies & Docs (WF20)</th>
                 </tr>
               </thead>
               <tbody>
@@ -265,12 +281,41 @@ export default function LiveClientsPage() {
                   <td className="py-3 pr-4">{item.breed}</td>
                   <td className="py-3 pr-4 font-mono">{item.weight_lbs !== null ? `${item.weight_lbs} lbs` : '—'}</td>
                   <td className="py-3 pr-4">{item.client_name}</td>
-                  <td className="py-3 font-mono">{item.client_phone}</td>
+                  <td className="py-3 pr-4 font-mono">{item.client_phone}</td>
+                  <td className="py-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDocPet({
+                        id: item.id,
+                        name: item.pet_name,
+                        breed: item.breed,
+                        rabies_verified: item.rabies_verified ?? true,
+                        client_id: item.client_id,
+                      })}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-semibold text-zinc-200 hover:bg-white/10"
+                    >
+                      {item.rabies_verified ?? true ? (
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                      ) : (
+                        <ShieldAlert className="h-3.5 w-3.5 text-rose-400" />
+                      )}
+                      <span>Docs & Vaccine</span>
+                    </button>
+                  </td>
                 </tr>)}
               </tbody>
             </table>
           </div>}
       </section>
+
+      {/* Pet Documents & Rabies Verification Modal (WF20) */}
+      <PetDocumentsModal
+        isOpen={Boolean(selectedDocPet)}
+        onClose={() => setSelectedDocPet(null)}
+        pet={selectedDocPet}
+        getAccessToken={getAccessToken}
+        onPetUpdated={() => void refresh()}
+      />
     </>}
     {message && <p role="alert" className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">{message}</p>}
   </main>;

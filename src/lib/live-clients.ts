@@ -4,6 +4,7 @@ export type LiveClientPet = {
   pet_name: string;
   breed: string;
   weight_lbs: number | null;
+  rabies_verified?: boolean;
   client_name: string;
   client_phone: string;
   client_email: string | null;

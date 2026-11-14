@@ -146,13 +146,22 @@ export default function TwoWaySmsConciergePage() {
     <div className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:px-8">
       {/* Sub-nav */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-2 rounded-xl border border-white/[0.1] bg-obsidian-800 px-3.5 py-2 text-xs font-semibold text-zinc-200 hover:border-periwinkle-500/40"
-        >
-          <ArrowLeft className="h-4 w-4 text-periwinkle-400" />
-          Back to Salon Command Center
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 rounded-xl border border-white/[0.1] bg-obsidian-800 px-3.5 py-2 text-xs font-semibold text-zinc-200 hover:border-periwinkle-500/40"
+          >
+            <ArrowLeft className="h-4 w-4 text-periwinkle-400" />
+            Back to Salon Command Center
+          </Link>
+          <Link
+            href="/dashboard/messages/live"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-periwinkle-500/40 bg-periwinkle-500/10 px-3.5 py-2 text-xs font-semibold text-periwinkle-300 hover:bg-periwinkle-500/20"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Live Two-Way SMS Hub →
+          </Link>
+        </div>
 
         <div className="flex items-center gap-2 text-xs text-zinc-400">
           <ShieldCheck className="h-4 w-4 text-emerald-400" />

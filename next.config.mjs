@@ -1,3 +1,9 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const isDevelopment = process.env.NODE_ENV === 'development';
 
 // This policy intentionally allows inline framework scripts and styles while
@@ -50,6 +56,7 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  outputFileTracingRoot: path.resolve(__dirname),
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

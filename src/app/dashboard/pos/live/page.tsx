@@ -516,6 +516,8 @@ export default function LivePOSPage() {
           settlement_status: tenderType === 'cash' ? 'settled' : 'pending',
           settled_at: tenderType === 'cash' ? new Date().toISOString() : null,
           created_at: new Date().toISOString(),
+          cash_tender_cents: tenderType === 'split' ? splitCashCents : tenderType === 'cash' ? toCents(breakdown.amount) : 0,
+          card_tender_cents: tenderType === 'split' ? splitCardCents : tenderType === 'card' ? toCents(breakdown.amount) : 0,
         },
         visit: {
           id: selectedVisit.id,
@@ -1225,6 +1227,36 @@ export default function LivePOSPage() {
                         <span>TOTAL PAID:</span>
                         <span className="text-periwinkle-300">{activeReceipt.breakdown.total}</span>
                       </div>
+
+                      {activeReceipt.payment.splitTenders && (
+                        <div className="border-t border-dashed border-white/10 pt-1.5 text-[10px] text-zinc-400 space-y-0.5">
+                          <div className="text-[10px] font-bold text-zinc-300 uppercase">Split Tender Breakdown:</div>
+                          {activeReceipt.payment.splitTenders.cash && (
+                            <div className="flex justify-between">
+                              <span>Cash Tender:</span>
+                              <span className="text-zinc-200">{activeReceipt.payment.splitTenders.cash}</span>
+                            </div>
+                          )}
+                          {activeReceipt.payment.splitTenders.card && (
+                            <div className="flex justify-between">
+                              <span>Card Tender:</span>
+                              <span className="text-zinc-200">{activeReceipt.payment.splitTenders.card}</span>
+                            </div>
+                          )}
+                          {activeReceipt.payment.splitTenders.giftCard && (
+                            <div className="flex justify-between">
+                              <span>Gift Card Tender:</span>
+                              <span className="text-zinc-200">{activeReceipt.payment.splitTenders.giftCard}</span>
+                            </div>
+                          )}
+                          {activeReceipt.payment.splitTenders.credit && (
+                            <div className="flex justify-between">
+                              <span>Store Credit:</span>
+                              <span className="text-zinc-200">{activeReceipt.payment.splitTenders.credit}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="pt-2 text-center">

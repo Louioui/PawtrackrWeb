@@ -59,6 +59,12 @@ export type ItemizedReceipt = {
     settlementStatus: string;
     settledAt: string | null;
     isVerifiedSettled: boolean;
+    splitTenders?: {
+      cash?: string;
+      card?: string;
+      giftCard?: string;
+      credit?: string;
+    };
   };
 };
 
@@ -157,6 +163,10 @@ export function formatItemizedReceipt(params: {
     settlement_status: string;
     settled_at?: string | null;
     created_at: string;
+    cash_tender_cents?: number | null;
+    card_tender_cents?: number | null;
+    gift_card_tender_cents?: number | null;
+    credit_tender_cents?: number | null;
   };
   visit: {
     id: string;
@@ -201,6 +211,19 @@ export function formatItemizedReceipt(params: {
       settlementStatus: params.transaction.settlement_status,
       settledAt: params.transaction.settled_at || null,
       isVerifiedSettled: isSettled,
+      splitTenders:
+        params.transaction.payment_method.toLowerCase() === 'split' ||
+        (params.transaction.cash_tender_cents ?? 0) > 0 ||
+        (params.transaction.card_tender_cents ?? 0) > 0 ||
+        (params.transaction.gift_card_tender_cents ?? 0) > 0 ||
+        (params.transaction.credit_tender_cents ?? 0) > 0
+          ? {
+              cash: params.transaction.cash_tender_cents != null ? `$${(params.transaction.cash_tender_cents / 100).toFixed(2)}` : undefined,
+              card: params.transaction.card_tender_cents != null ? `$${(params.transaction.card_tender_cents / 100).toFixed(2)}` : undefined,
+              giftCard: params.transaction.gift_card_tender_cents != null ? `$${(params.transaction.gift_card_tender_cents / 100).toFixed(2)}` : undefined,
+              credit: params.transaction.credit_tender_cents != null ? `$${(params.transaction.credit_tender_cents / 100).toFixed(2)}` : undefined,
+            }
+          : undefined,
     },
   };
 }

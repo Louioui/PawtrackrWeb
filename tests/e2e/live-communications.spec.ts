@@ -85,3 +85,22 @@ test('live POS register page displays Day Closeout (WF08) quick link at mobile w
   // Verify responsive width fit without horizontal overflow
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+test('live two-way SMS hub renders staff authentication gate and responsive layout at mobile width', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/dashboard/messages/live');
+
+  await expect(
+    page.getByRole('heading', { name: 'Two-Way SMS & Communications Sign In' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Email')).toBeVisible();
+  await expect(page.getByLabel('Password')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Sign In to Communications Hub' }),
+  ).toBeVisible();
+
+  // Verify responsive width fit without horizontal overflow
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});

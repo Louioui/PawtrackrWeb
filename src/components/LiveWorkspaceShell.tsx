@@ -14,6 +14,7 @@ import {
   Globe,
   LineChart,
   LogOut,
+  MessageSquare,
   Settings,
   Shield,
   Truck,
@@ -93,6 +94,12 @@ export function LiveWorkspaceShell({
       label: 'POS Register',
       icon: CreditCard,
       active: pathname === '/dashboard/pos/live',
+    },
+    {
+      href: '/dashboard/messages/live',
+      label: 'Two-Way SMS',
+      icon: MessageSquare,
+      active: pathname === '/dashboard/messages/live',
     },
     {
       href: '/dashboard/payroll/live',

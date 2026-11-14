@@ -116,3 +116,34 @@ test('front page interactive tour, animated walkthrough, and lifecycle stages ar
     }))
   ).toEqual([]);
 });
+
+test('pwa web app manifest, sitemap, and high-DPI brand icons return 200 with correct media types', async ({
+  request,
+}) => {
+  const manifest = await request.get('/manifest.json');
+  expect(manifest.status()).toBe(200);
+  const manifestJson = await manifest.json();
+  expect(manifestJson.name).toContain('Pawtrackr');
+  expect(manifestJson.display).toBe('standalone');
+  expect(manifestJson.icons.length).toBeGreaterThanOrEqual(4);
+
+  const svgIcon = await request.get('/icon.svg');
+  expect(svgIcon.status()).toBe(200);
+  expect(svgIcon.headers()['content-type']).toContain('image/svg+xml');
+
+  const icon192 = await request.get('/icon-192.png');
+  expect(icon192.status()).toBe(200);
+
+  const icon512 = await request.get('/icon-512.png');
+  expect(icon512.status()).toBe(200);
+
+  const appleTouch = await request.get('/apple-touch-icon.png');
+  expect(appleTouch.status()).toBe(200);
+
+  const sitemap = await request.get('/sitemap.xml');
+  expect(sitemap.status()).toBe(200);
+  const sitemapText = await sitemap.text();
+  expect(sitemapText).toContain('/privacy');
+  expect(sitemapText).toContain('/login');
+  expect(sitemapText).toContain('/signup');
+});

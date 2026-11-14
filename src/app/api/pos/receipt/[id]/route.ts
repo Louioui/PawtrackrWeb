@@ -36,6 +36,10 @@ export async function GET(
       settlement_status,
       settled_at,
       created_at,
+      cash_tender_cents,
+      card_tender_cents,
+      gift_card_tender_cents,
+      credit_tender_cents,
       visits (
         id,
         service_package,
@@ -92,6 +96,10 @@ export async function GET(
       settlement_status: tx.settlement_status,
       settled_at: tx.settled_at,
       created_at: tx.created_at,
+      cash_tender_cents: tx.cash_tender_cents,
+      card_tender_cents: tx.card_tender_cents,
+      gift_card_tender_cents: tx.gift_card_tender_cents,
+      credit_tender_cents: tx.credit_tender_cents,
     },
     visit: {
       id: visitData?.id || '',

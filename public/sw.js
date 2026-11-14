@@ -3,9 +3,10 @@
 // API and client-specific responses must never enter this cache.
 // ============================================================================
 
-const CACHE_NAME = 'pawtrackr-offline-v3';
+const CACHE_NAME = 'pawtrackr-offline-v4';
 const PRECACHE_ROUTES = [
   '/',
+  '/privacy',
   '/dashboard',
   '/dashboard/fleet',
   '/dashboard/payroll',
@@ -14,6 +15,7 @@ const PRECACHE_ROUTES = [
   '/dashboard/import',
   '/dashboard/analytics',
   '/manifest.json',
+  '/icon.svg',
 ];
 
 async function precacheDemoShell() {

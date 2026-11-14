@@ -1,11 +1,70 @@
 {
+  "id": "/?source=pwa",
   "name": "Pawtrackr Web — Multi-Tenant Grooming Salon & Van OS",
   "short_name": "Pawtrackr",
   "description": "Universal B2B Vertical SaaS for Pet Groomers across Android, Windows, iOS, macOS, and Web.",
   "start_url": "/dashboard",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0B090E",
   "theme_color": "#8B95FF",
   "orientation": "any",
-  "categories": ["business", "finance", "productivity"]
+  "lang": "en",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Live POS Register",
+      "short_name": "Register",
+      "description": "Launch atomic integer-cent POS register and split checkout",
+      "url": "/dashboard/pos/live",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Salon Operations Command",
+      "short_name": "Operations",
+      "description": "Floor flow, active baths, and groomer status tracking",
+      "url": "/dashboard/operations/live",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mobile Van Fleet Dispatch",
+      "short_name": "Fleet",
+      "description": "Offline-first van route dispatch and arrival tracking",
+      "url": "/dashboard/fleet/live",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Appointments Calendar",
+      "short_name": "Calendar",
+      "description": "Real-time appointments, exclusions, and shifts",
+      "url": "/dashboard/appointments/live",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
 }

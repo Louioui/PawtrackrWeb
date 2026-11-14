@@ -90,6 +90,10 @@ export function TopNav() {
     },
   ];
 
+  if (pathname?.startsWith('/admin/sovereign-matrix')) {
+    return null;
+  }
+
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-white/[0.08] bg-obsidian-900/85 backdrop-blur-2xl">

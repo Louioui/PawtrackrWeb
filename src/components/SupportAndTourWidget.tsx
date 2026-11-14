@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   CheckCircle2,
   Compass,
@@ -40,10 +41,15 @@ const ONBOARDING_STEPS = [
 ];
 
 export function SupportAndTourWidget() {
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<'tour' | 'support'>('tour');
   const [feedbackText, setFeedbackText] = useState('');
   const [sentSupport, setSentSupport] = useState(false);
+
+  if (pathname?.startsWith('/admin/sovereign-matrix')) {
+    return null;
+  }
 
   const handleSupportSubmit = (e: React.FormEvent) => {
     e.preventDefault();

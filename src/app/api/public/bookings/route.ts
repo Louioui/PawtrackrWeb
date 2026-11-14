@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   createRateLimiter, getPublicBookingClient, parseBookingConfirmation, publicBookingFailure, validatePublicBookingRequest,
 } from '@/lib/public-booking';
+import { getSovereignState } from '@/lib/sovereign-matrix';
 
 const reply = (body: unknown, status: number) =>
   NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -11,6 +12,18 @@ const allow = createRateLimiter(8, 10 * 60_000);
 // slug; the price, duration, buffer, and groomer are all decided in the
 // database from the salon's own catalog and schedule.
 export async function POST(req: NextRequest) {
+  const sovereign = getSovereignState();
+  if (sovereign.isGlobalMaintenance()) {
+    return reply(
+      {
+        error:
+          sovereign.getGlobalMaintenance().reason ||
+          'Online booking is temporarily offline for scheduled system maintenance.',
+      },
+      503
+    );
+  }
+
   const address = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   if (!allow(address)) return reply({ error: 'Too many booking attempts. Wait a few minutes or contact the salon.' }, 429);
   let body: unknown;

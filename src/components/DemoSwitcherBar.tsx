@@ -58,7 +58,8 @@ export function DemoSwitcherBar() {
 
   if (
     pathname?.startsWith('/dashboard/analytics') ||
-    pathname?.startsWith('/portal/live')
+    pathname?.startsWith('/portal/live') ||
+    pathname?.startsWith('/admin/sovereign-matrix')
   ) {
     return null;
   }

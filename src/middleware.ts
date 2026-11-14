@@ -58,6 +58,7 @@ function dataMode(pathname: string, method: string) {
     pathname.startsWith('/api/config') ||
     pathname.startsWith('/api/communications') ||
     pathname.startsWith('/api/staff/') ||
+    pathname.startsWith('/api/admin/sovereign-matrix') ||
     pathname.startsWith('/api/waivers');
 
   const isStaffPage =

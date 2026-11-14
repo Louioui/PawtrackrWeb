@@ -4,7 +4,7 @@
 // isolation between independent grooming salons and mobile van fleets.
 // ============================================================================
 
-import {
+import type {
   Business,
   BusinessConfig,
   Client,
@@ -12,7 +12,7 @@ import {
   StaffMember,
   Transaction,
   Visit,
-} from '@/types/database';
+} from '../types/database.ts';
 
 export const TENANT_BESPOKE_ID = '11111111-1111-4111-8111-111111111111';
 export const TENANT_SPLASH_ID = '22222222-2222-4222-8222-222222222222';

@@ -730,6 +730,25 @@ export default function AccountAndWorkspaceHubPage() {
             </div>
           ) : (
             <form onSubmit={handleLaunchNewSalon} className="mt-6 space-y-6">
+              {/* Fullscreen Provisioning Wizard Banner */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl border border-periwinkle-500/30 bg-gradient-to-r from-periwinkle-500/10 via-obsidian-900 to-obsidian-900 p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-periwinkle-500 text-obsidian-950 font-bold">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-white">Prefer the Guided Progressive Onboarding Experience?</h3>
+                    <p className="text-[11px] text-zinc-400">Launch with live subdomain availability check, operational model picker (Mobile Van, Brick &amp; Mortar, Hybrid), and activation checklist.</p>
+                  </div>
+                </div>
+                <Link
+                  href="/welcome"
+                  className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-periwinkle-500 px-3.5 py-2 text-xs font-bold text-obsidian-950 shadow-periwinkle-glow hover:bg-periwinkle-400"
+                >
+                  Launch /welcome Wizard <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+
               {/* Step Progress Bar */}
               <div className="grid grid-cols-3 gap-2">
                 {[

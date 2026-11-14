@@ -19,6 +19,7 @@ import {
   Receipt,
   Search,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Truck,
   Users,
@@ -54,6 +55,8 @@ import { AtomicPOSModal } from '@/components/AtomicPOSModal';
 import { DigitalWaiverModal } from '@/components/DigitalWaiverModal';
 import { ReportCardPublisherModal } from '@/components/ReportCardPublisherModal';
 import { AnatomicalCutCard } from '@/components/AnatomicalCutCard';
+import { StaffAbsenceTriageModal } from '@/components/StaffAbsenceTriageModal';
+import { StaffMember } from '@/types/database';
 import {
   loadUniversalStore,
   saveUniversalStore,
@@ -187,6 +190,22 @@ export default function DashboardCommandCenter() {
   } | null>(null);
   const [reportCardModalVisit, setReportCardModalVisit] =
     useState<Visit | null>(null);
+  const [triageAbsentStaff, setTriageAbsentStaff] = useState<StaffMember | null>(null);
+
+  // Global Keyboard Shortcuts (Cmd+N = New Appointment, Cmd+Shift+B = Toggle Board View)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setIsWalkInModalOpen(true);
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setCalendarViewMode((prev) => (prev === 'pipeline' ? 'timegrid' : 'pipeline'));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Walk-In Intake Modal State
   const [isWalkInModalOpen, setIsWalkInModalOpen] = useState<boolean>(false);
@@ -270,6 +289,25 @@ export default function DashboardCommandCenter() {
     () => reconcileEndOfDayDrawer(tenantTransactions.filter((tx) => tx.status === 'completed')),
     [tenantTransactions]
   );
+
+  // Confirm batch reassignment from Smart Triage
+  const handleConfirmBatchReassignment = (
+    reassignments: { visitId: string; newStaffId: string }[]
+  ) => {
+    const reassignmentMap = new Map(
+      reassignments.map((r) => [r.visitId, r.newStaffId])
+    );
+    const updatedVisits = visits.map((v) => {
+      const newStaff = reassignmentMap.get(v.id);
+      return newStaff ? { ...v, staff_id: newStaff } : v;
+    });
+    setVisits(updatedVisits);
+    saveUniversalStore({ visits: updatedVisits });
+    setSmsToastMessage(
+      `Smart Triage: ${reassignments.length} appointments successfully reassigned & automated client SMS alerts queued.`
+    );
+    setTimeout(() => setSmsToastMessage(null), 5000);
+  };
 
   // Advance a visit to the next grooming stage
   const handleAdvanceStatus = (visit: Visit) => {
@@ -1289,6 +1327,22 @@ export default function DashboardCommandCenter() {
                     {staff.name}
                   </button>
                 ))}
+
+              <button
+                type="button"
+                onClick={() => {
+                  const target =
+                    tenantStaff.find((s) => s.id === selectedStaffId) ||
+                    tenantStaff.find((s) => s.role !== 'front_desk') ||
+                    tenantStaff[0];
+                  if (target) setTriageAbsentStaff(target);
+                }}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-300 hover:bg-amber-500 hover:text-obsidian-950 transition"
+                title="Trigger AI Smart Triage crisis reassignment when a staff member calls out"
+              >
+                <ShieldAlert className="h-3.5 w-3.5" />
+                Off-Duty / Smart Triage
+              </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -2552,6 +2606,21 @@ export default function DashboardCommandCenter() {
             </div>
           </div>
         </div>
+      )}
+
+      {triageAbsentStaff && (
+        <StaffAbsenceTriageModal
+          absentStaff={triageAbsentStaff}
+          allStaff={tenantStaff}
+          affectedVisits={tenantVisits.filter(
+            (v) => v.staff_id === triageAbsentStaff.id && v.status !== 'completed'
+          )}
+          pets={pets}
+          clients={clients}
+          isOpen={true}
+          onClose={() => setTriageAbsentStaff(null)}
+          onConfirmBatchReassignment={handleConfirmBatchReassignment}
+        />
       )}
     </div>
   );

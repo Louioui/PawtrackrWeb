@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { CalendarCheck, Clock } from 'lucide-react';
 import { PublicBookingConfirmation, parseBookingConfirmation, validatePublicBookingRequest } from '@/lib/public-booking';
 
@@ -113,12 +114,25 @@ export default function BookingForm({ slug, salonName, services, timeZone, hours
         <div><dt className="text-zinc-400">Date</dt><dd className="text-white">{dayLabel.format(new Date(confirmation.starts_at))}</dd></div>
         <div><dt className="text-zinc-400">Time</dt><dd className="text-white">{timeLabel.format(new Date(confirmation.starts_at))}–{timeLabel.format(new Date(confirmation.ends_at))} <span className="text-zinc-400">({confirmation.time_zone.replaceAll('_', ' ')})</span></dd></div>
       </dl>
-      <p className="mt-5 text-xs text-zinc-500">The price shown is for the service you chose. Add-ons, tax, and tip are settled with the salon at checkout. To cancel or reschedule, contact the salon with your reference.</p>
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <Link
+          href={`/portal/live/${slug}/manage?ref=${confirmation.reference}&phone=${encodeURIComponent(phone)}`}
+          className="inline-flex min-h-11 items-center justify-center rounded-lg bg-periwinkle-400 px-5 text-sm font-bold text-obsidian-950 transition hover:bg-periwinkle-300"
+        >
+          View &amp; Manage Appointment →
+        </Link>
+      </div>
+      <p className="mt-4 text-xs text-zinc-500">The price shown is for the service you chose. Add-ons, tax, and tip are settled with the salon at checkout. You can reschedule or cancel online up to 24 hours in advance using your reference code.</p>
     </section>;
   }
 
   return <section className="glass-card mt-8 p-5 sm:p-6" aria-labelledby="book-heading">
-    <h2 id="book-heading" className="text-xl font-bold text-white">Book an appointment</h2>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 id="book-heading" className="text-xl font-bold text-white">Book an appointment</h2>
+      <Link href={`/portal/live/${slug}/manage`} className="text-xs text-periwinkle-300 hover:text-white">
+        Already booked? Manage appointment →
+      </Link>
+    </div>
     <p className="mt-1 text-sm text-zinc-400">Times are shown in the salon’s time zone ({timeZone.replaceAll('_', ' ')}).</p>
     <form onSubmit={submit} className="mt-5 space-y-6">
       <fieldset>

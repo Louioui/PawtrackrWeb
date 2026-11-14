@@ -62,13 +62,14 @@ This document maps the user's broad build request and the supplied architecture 
   - PR #7: Absolute integer-cent cash drawer reconciliation and split-payment isolation tests.
   - PR #8: Cross-tenant data isolation and foreign-key hijacking protection tests.
   - PR #9: Enterprise platform Slices 1–7 rollout (WF00–WF40) with renumbered migrations `0025`–`0031`, live production engines (Operations floor queue, POS settlement & surcharges, Communications & report cards, Payroll commissions & period lock, Waitlist holds, Fleet dispatch, and Data portability with atomic rollback), and UX Pilot design review resolutions.
+  - Slice WF02/WF14: Customer Self-Service Portal (`/portal/live/[slug]/manage`), reference code lookup, GiST-locked self-reschedule, 24-hour advance policy cancellation, and `0032_customer_self_service_portal.sql`.
 - **CodeRabbit & UX Pilot Review Resolutions:**
   - All CodeRabbit and UX Pilot review comments across PRs #5, #6, #7, #8, and #9 were fully addressed, verified, and resolved prior to merge.
 - **Test Suite Metrics:**
-  - `npm run test:migrations`: 31 migrations applied cleanly + full tenant isolation, GiST concurrency race, and workflow event immutability fixtures passed.
+  - `npm run test:migrations`: 32 migrations applied cleanly + full tenant isolation, GiST concurrency race, and workflow event immutability fixtures passed.
   - `npm run typecheck`: 0 TypeScript errors.
-  - `npm test`: 168/168 passing unit and scenario assertions.
-  - `npm run test:e2e`: 63/63 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
+  - `npm test`: 178/178 passing unit and scenario assertions.
+  - `npm run test:e2e`: 65/65 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
 
 ## Production flows added on November 9–10, 2026
 

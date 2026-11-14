@@ -70,7 +70,7 @@ This document maps the user's broad build request and the supplied architecture 
   - `npm run test:migrations`: 33 migrations applied cleanly + full tenant isolation, cross-tenant foreign-key assertions, GiST concurrency race, and workflow event immutability fixtures passed.
   - `npm run typecheck`: 0 TypeScript errors.
   - `npm test`: 184/184 passing unit and scenario assertions.
-  - `npm run test:e2e`: 31/31 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
+  - `npm run test:e2e`: 65/65 Playwright integration tests passing with zero WCAG 2.1 AA accessibility violations.
 
 ## Production flows added on November 9–10, 2026
 

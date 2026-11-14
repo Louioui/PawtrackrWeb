@@ -67,7 +67,36 @@ export default function SalonSignUpPage() {
     }
   }, []);
 
-  useEffect(() => { void refresh(); return () => { requestId.current += 1; }; }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    const client = getSupabaseClient();
+    if (client) {
+      const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
+        if (session) void refresh();
+      });
+      return () => {
+        requestId.current += 1;
+        subscription.unsubscribe();
+      };
+    }
+    return () => { requestId.current += 1; };
+  }, [refresh]);
+
+  const resetFreshStart = async () => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch { /* ignore */ }
+    }
+    const client = getSupabaseClient();
+    if (client) {
+      await client.auth.signOut().catch(() => {});
+    }
+    setMembership(null);
+    setPhase('signed_out');
+    setMessage('Local cache and sessions cleared. Clean slate initialized for live email testing.');
+  };
 
   const authenticate = async (event: FormEvent) => {
     event.preventDefault();
@@ -77,7 +106,12 @@ export default function SalonSignUpPage() {
     try {
       if (mode === 'create') {
         if (password.length < 10) { setMessage('Use a password of at least 10 characters.'); return; }
-        const { data, error } = await client.auth.signUp({ email: email.trim(), password });
+        const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/signup` : undefined;
+        const { data, error } = await client.auth.signUp({
+          email: email.trim(),
+          password,
+          options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
+        });
         if (error) { setMessage('The account could not be created. Check the email address, or sign in if you already have an account.'); return; }
         if (!data.session) { setPhase('confirm_email'); return; }
       } else {
@@ -124,7 +158,20 @@ export default function SalonSignUpPage() {
   const salon = membership?.member && membership.active ? membership.salon : null;
 
   return <main className="mx-auto max-w-xl px-4 pb-20 pt-10 sm:px-6">
-    <p className="text-xs font-bold uppercase tracking-wider text-periwinkle-300">Pawtrackr for salons</p>
+    <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] pb-3 mb-2">
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+        <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">Live Supabase Cloud</p>
+      </div>
+      <button
+        type="button"
+        onClick={resetFreshStart}
+        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-periwinkle-400/40 hover:text-white transition"
+        title="Wipe demo localStorage sessions and start with fresh live email"
+      >
+        Reset Local Cache
+      </button>
+    </div>
     <h1 className="mt-2 text-3xl font-extrabold text-white sm:text-4xl">{salon ? 'Your salon is ready' : 'Set up your salon'}</h1>
     {!salon && <p className="mt-3 text-sm text-zinc-400">Create an account, name your salon, and you can add services, groomers, and take bookings today. New salons start on a free trial; no card is collected here.</p>}
 
@@ -134,8 +181,11 @@ export default function SalonSignUpPage() {
 
     {phase === 'confirm_email' && <section className="glass-card mt-8 p-6" aria-labelledby="confirm-heading">
       <h2 id="confirm-heading" className="text-xl font-bold text-white">Check your email</h2>
-      <p className="mt-2 text-sm text-zinc-300">We sent a confirmation link to <span className="font-semibold text-white">{email.trim()}</span>. Open it, then come back and sign in to finish setting up your salon.</p>
-      <button type="button" onClick={() => { setMode('signin'); setPhase('signed_out'); }} className={`${primary} mt-5`}>I confirmed my email</button>
+      <p className="mt-2 text-sm text-zinc-300">We sent a confirmation link to <span className="font-semibold text-white">{email.trim()}</span>. Open it, then come back here or click below to finish setting up your salon.</p>
+      <div className="mt-5 flex flex-col sm:flex-row gap-3">
+        <button type="button" onClick={() => { setMode('signin'); setPhase('signed_out'); }} className={primary}>I confirmed my email</button>
+        <button type="button" onClick={() => { setMode('create'); setPhase('signed_out'); }} className="min-h-11 rounded-lg border border-white/15 px-4 text-xs text-zinc-300 hover:text-white">Use a different email</button>
+      </div>
     </section>}
 
     {phase === 'signed_out' && <section className="glass-card mt-8 p-6" aria-labelledby="account-heading">

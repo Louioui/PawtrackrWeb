@@ -46,14 +46,14 @@ export default function WelcomeOnboardingPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Step 1: Credential & Salon Identity
-  const [ownerName, setOwnerName] = useState('Alex Rivera');
-  const [salonName, setSalonName] = useState('Bespoke Grooming Studio');
-  const [email, setEmail] = useState('owner@bespokegrooming.com');
-  const [password, setPassword] = useState('Pawtrackr2026!');
+  const [ownerName, setOwnerName] = useState('');
+  const [salonName, setSalonName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [timeZone, setTimeZone] = useState('America/Los_Angeles');
 
   // Step 2: Live Slug Selector
-  const [slug, setSlug] = useState('bespoke-grooming');
+  const [slug, setSlug] = useState('');
   const [slugEdited, setSlugEdited] = useState(false);
 
   // Step 3: Operating Model & Activation
@@ -61,6 +61,28 @@ export default function WelcomeOnboardingPage() {
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisionError, setProvisionError] = useState<string | null>(null);
   const [provisionSuccess, setProvisionSuccess] = useState(false);
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+
+  // Reset local cache utility
+  const resetFreshStart = async () => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch { /* ignore */ }
+    }
+    const client = getSupabaseClient();
+    if (client) {
+      await client.auth.signOut().catch(() => {});
+    }
+    setOwnerName('');
+    setSalonName('');
+    setEmail('');
+    setPassword('');
+    setSlug('');
+    setStep(1);
+    setProvisionError('Local cache and sessions cleared. Clean slate initialized.');
+  };
 
   // Auto-detect timezone
   useEffect(() => {
@@ -91,8 +113,12 @@ export default function WelcomeOnboardingPage() {
 
   const handleNextToStep2 = (e: FormEvent) => {
     e.preventDefault();
-    if (!ownerName.trim() || !salonName.trim() || !email.trim()) {
+    if (!ownerName.trim() || !salonName.trim() || !email.trim() || !password) {
       setProvisionError('Please fill out all identity fields.');
+      return;
+    }
+    if (password.length < 10) {
+      setProvisionError('Password must be at least 10 characters.');
       return;
     }
     setProvisionError(null);
@@ -121,57 +147,58 @@ export default function WelcomeOnboardingPage() {
     try {
       const supabase = getSupabaseClient();
       if (supabase) {
-        // Sign up or sign in
+        // Sign up with real email
+        const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/signup` : undefined;
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email: email.trim(),
           password,
+          options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
         });
 
         if (authError && !authError.message.includes('already registered')) {
-          // Attempt sign in if already exists
+          // Attempt sign in if already registered
           const { error: signInErr } = await supabase.auth.signInWithPassword({
             email: email.trim(),
             password,
           });
           if (signInErr) {
-            // Non-blocking fallback for local demo environment
-            console.warn('Supabase auth fallback:', signInErr.message);
+            throw new Error(signInErr.message);
           }
         }
 
         const session = (await supabase.auth.getSession()).data.session;
-        if (session) {
-          const resp = await fetch('/api/onboarding', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({
-              salon_name: salonName,
-              slug,
-              time_zone: timeZone,
-              owner_name: ownerName,
-              operating_model: operatingModel,
-            }),
-          });
-          const result = await resp.json();
-          if (!resp.ok && resp.status !== 409) {
-            throw new Error(result.error || 'Provisioning failed.');
-          }
+        if (!session) {
+          // Email confirmation is required by Supabase
+          setAwaitingConfirmation(true);
+          setIsProvisioning(false);
+          return;
         }
-      }
 
-      setProvisionSuccess(true);
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1200);
-    } catch (err) {
-      // In demo mode without active Supabase keys, gracefully complete provisioning
-      setProvisionSuccess(true);
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1200);
+        const resp = await fetch('/api/onboarding', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            salon_name: salonName,
+            slug,
+            time_zone: timeZone,
+            owner_name: ownerName,
+          }),
+        });
+        const result = await resp.json();
+        if (!resp.ok && resp.status !== 409) {
+          throw new Error(result.error || 'Provisioning failed.');
+        }
+
+        setProvisionSuccess(true);
+        setTimeout(() => {
+          router.push(`/dashboard/appointments/live`);
+        }, 1200);
+      }
+    } catch (err: any) {
+      setProvisionError(err?.message || 'Provisioning failed. Please check your connection and credentials.');
     } finally {
       setIsProvisioning(false);
     }
@@ -194,12 +221,26 @@ export default function WelcomeOnboardingPage() {
           </p>
         </div>
 
-        {/* Step Progress Bar */}
+        {/* Step Progress Bar & Environment Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-semibold text-emerald-400">Live Supabase Database Connected</span>
+          </div>
+          <button
+            type="button"
+            onClick={resetFreshStart}
+            className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-periwinkle-400/40 hover:text-white transition"
+          >
+            Clear Local Cache &amp; Reset
+          </button>
+        </div>
+
         <div className="rounded-2xl border border-white/[0.08] bg-obsidian-900/80 p-4">
           <div className="flex items-center justify-between text-xs font-semibold">
             <button
               type="button"
-              onClick={() => setStep(1)}
+              onClick={() => !awaitingConfirmation && setStep(1)}
               className={`flex items-center gap-2 transition ${
                 step >= 1 ? 'text-periwinkle-300' : 'text-zinc-500'
               }`}
@@ -207,14 +248,14 @@ export default function WelcomeOnboardingPage() {
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-periwinkle-500/20 text-[11px] font-bold border border-periwinkle-500/40">
                 1
               </span>
-              <span>Identity & Credentials</span>
+              <span>Identity &amp; Credentials</span>
             </button>
 
             <div className={`h-0.5 flex-1 mx-4 rounded ${step >= 2 ? 'bg-periwinkle-500/50' : 'bg-white/10'}`} />
 
             <button
               type="button"
-              onClick={() => step >= 2 && setStep(2)}
+              onClick={() => !awaitingConfirmation && step >= 2 && setStep(2)}
               className={`flex items-center gap-2 transition ${
                 step >= 2 ? 'text-periwinkle-300' : 'text-zinc-500'
               }`}
@@ -222,14 +263,14 @@ export default function WelcomeOnboardingPage() {
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-periwinkle-500/20 text-[11px] font-bold border border-periwinkle-500/40">
                 2
               </span>
-              <span>Subdomain & Web Address</span>
+              <span>Subdomain &amp; Web Address</span>
             </button>
 
             <div className={`h-0.5 flex-1 mx-4 rounded ${step >= 3 ? 'bg-periwinkle-500/50' : 'bg-white/10'}`} />
 
             <button
               type="button"
-              onClick={() => step >= 3 && setStep(3)}
+              onClick={() => !awaitingConfirmation && step >= 3 && setStep(3)}
               className={`flex items-center gap-2 transition ${
                 step >= 3 ? 'text-periwinkle-300' : 'text-zinc-500'
               }`}
@@ -237,7 +278,7 @@ export default function WelcomeOnboardingPage() {
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-periwinkle-500/20 text-[11px] font-bold border border-periwinkle-500/40">
                 3
               </span>
-              <span>Model & Activation</span>
+              <span>Model &amp; Activation</span>
             </button>
           </div>
         </div>
@@ -250,107 +291,137 @@ export default function WelcomeOnboardingPage() {
             </div>
           )}
 
-          {/* STEP 1: IDENTITY & CREDENTIALS */}
-          {step === 1 && (
-            <form onSubmit={handleNextToStep2} className="space-y-5">
-              <div className="border-b border-white/[0.08] pb-4">
-                <h2 className="text-xl font-bold text-white">Step 1: Salon Identity & Master Account</h2>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Establish executive ownership and configure your salon&apos;s authoritative local time zone.
+          {awaitingConfirmation ? (
+            <div className="space-y-6 text-center py-6">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-periwinkle-500/30 bg-periwinkle-500/15 text-periwinkle-300">
+                <Mail className="h-7 w-7" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold text-white">Check your email inbox</h2>
+                <p className="text-sm text-zinc-300 max-w-md mx-auto">
+                  We sent a confirmation link to <span className="font-semibold text-white">{email.trim()}</span>.
+                  Click the link in the email to activate your account, then click below to launch your live salon.
                 </p>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    Salon / Business Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={salonName}
-                    onChange={(e) => setSalonName(e.target.value)}
-                    placeholder="e.g. Bespoke Grooming Studio"
-                    className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    Owner / Executive Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={ownerName}
-                    onChange={(e) => setOwnerName(e.target.value)}
-                    placeholder="e.g. Alex Rivera"
-                    className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    Work Email (Master Sign-In)
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="owner@yourdomain.com"
-                    className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    Master Password
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    minLength={10}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 10 characters"
-                    className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Authoritative Salon Time Zone
-                </label>
-                <select
-                  value={timeZone}
-                  onChange={(e) => setTimeZone(e.target.value)}
-                  className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <Link
+                  href="/signup"
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl bg-periwinkle-400 px-6 text-xs font-bold text-obsidian-950 shadow-periwinkle-glow hover:bg-periwinkle-300 transition"
                 >
-                  {COMMON_TIMEZONES.map((tz) => (
-                    <option key={tz} value={tz}>
-                      {tz}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-[11px] text-zinc-400 mt-1 block">
-                  All availability slots and customer booking emails resolve strictly to this local time zone.
-                </span>
-              </div>
-
-              <div className="pt-2 flex justify-end">
+                  I confirmed my email &rarr; Complete Setup
+                </Link>
                 <button
-                  type="submit"
-                  className="inline-flex items-center gap-2 rounded-xl bg-periwinkle-500 px-6 py-2.5 text-xs font-bold text-obsidian-950 hover:bg-periwinkle-400 transition"
+                  type="button"
+                  onClick={() => setAwaitingConfirmation(false)}
+                  className="min-h-11 rounded-xl border border-white/15 px-4 text-xs font-medium text-zinc-300 hover:text-white"
                 >
-                  Continue to Subdomain Setup &rarr;
+                  Edit details or try again
                 </button>
               </div>
-            </form>
-          )}
+            </div>
+          ) : (
+            <>
+              {/* STEP 1: IDENTITY & CREDENTIALS */}
+              {step === 1 && (
+                <form onSubmit={handleNextToStep2} className="space-y-5">
+                  <div className="border-b border-white/[0.08] pb-4">
+                    <h2 className="text-xl font-bold text-white">Step 1: Salon Identity &amp; Master Account</h2>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Establish executive ownership and configure your salon&apos;s authoritative local time zone.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                        Salon / Business Name
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={salonName}
+                        onChange={(e) => setSalonName(e.target.value)}
+                        placeholder="e.g. Pawtrackr Grooming Studio"
+                        className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                        Owner / Executive Name
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={ownerName}
+                        onChange={(e) => setOwnerName(e.target.value)}
+                        placeholder="e.g. Your Full Name"
+                        className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                        Work Email (Master Sign-In)
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="e.g. you@yourdomain.com"
+                        className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                        Master Password
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        minLength={10}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="At least 10 characters"
+                        className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      Authoritative Salon Time Zone
+                    </label>
+                    <select
+                      value={timeZone}
+                      onChange={(e) => setTimeZone(e.target.value)}
+                      className="w-full rounded-xl border border-white/[0.12] bg-obsidian-950 px-3.5 py-2.5 text-xs text-white focus:border-periwinkle-500 focus:outline-none"
+                    >
+                      {COMMON_TIMEZONES.map((tz) => (
+                        <option key={tz} value={tz}>
+                          {tz}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-[11px] text-zinc-400 mt-1 block">
+                      All availability slots and customer booking emails resolve strictly to this local time zone.
+                    </span>
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="submit"
+                      className="inline-flex items-center gap-2 rounded-xl bg-periwinkle-500 px-6 py-2.5 text-xs font-bold text-obsidian-950 hover:bg-periwinkle-400 transition"
+                    >
+                      Continue to Subdomain Setup &rarr;
+                    </button>
+                  </div>
+                </form>
+              )}
 
           {/* STEP 2: SUBDOMAIN SELECTOR */}
           {step === 2 && (
@@ -536,7 +607,9 @@ export default function WelcomeOnboardingPage() {
               </div>
             </div>
           )}
-        </div>
+        </>
+      )}
+    </div>
       </div>
     </div>
   );
